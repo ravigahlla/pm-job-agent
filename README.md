@@ -155,6 +155,24 @@ Generated artifacts that might contain PII should go under `outputs/` or `var/` 
 pytest
 ```
 
+## Core loop (Phase 1)
+
+After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the LangGraph pipeline once (loads `AGENT_CONTEXT_PATH`, discovers jobs — currently empty stub — scores, then runs the **stub LLM** for a short digest):
+
+```bash
+python -m pm_job_agent
+# or
+pm-job-agent
+```
+
+JSON state (includes full `agent_context` text — **do not paste into public channels**):
+
+```bash
+python -m pm_job_agent --json
+```
+
+`DEFAULT_LLM_PROVIDER=stub` is the default until real providers are wired (`get_llm_client`).
+
 ## Docker
 
 ```bash
