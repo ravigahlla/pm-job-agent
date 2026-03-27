@@ -1,0 +1,31 @@
+# Git and local secrets
+.git
+.gitignore
+.env
+.env.*
+private/
+
+# Python virtualenv and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tests (not needed in default image)
+tests/
+*.md
+!README.md
+!.dockerignore
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+outputs/
+var/
+.cursorrules
+.github/

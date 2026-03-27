@@ -1,0 +1,72 @@
+## Who I am
+I'm an experienced Product Manager (> 12 years), not a software engineer. I'm building this project to:
+1. Use it actively for my own job search
+2. Develop genuine AI engineering literacy — I want to understand what's being built, not just ship it
+3. Demonstrate AI product competence to potential clients as a fractional AI PM
+
+Treat me as someone who can handle technical depth but needs architectural decisions explained, not assumed. Be intellectually honest and succinct, not generous or critical
+
+---
+
+## Project: pm-job-agent
+A multi-agent job hunting system built with LangGraph that:
+- Discovers PM roles from Greenhouse and Adzuna APIs
+- Scores and ranks them against my background
+- Generates tailored resumes and cover letters
+- Delivers results via Slack on a weekday morning cron schedule via GitHub Actions
+
+---
+
+## Stack
+- **Language:** Python
+- **Orchestration:** LangGraph
+- **LLM calls:** Abstracted behind a model wrapper class — must be swappable between Claude, OpenAI, and Gemini without touching agent logic
+- **Job sources (Phase 1):** Greenhouse API, Adzuna API
+- **Scheduling:** GitHub Actions cron (weekday mornings)
+- **Delivery:** Slack
+- **Containerization:** Docker
+- **No** Raspberry Pi, cloud server, or paid infrastructure in Phase 1
+
+---
+
+## Build phases
+
+**Phase 1 — Core loop**
+Job discovery → role scoring/matching → tailored resume + cover letter generation
+
+**Phase 2 — Intelligence layer**
+Eval framework (score output quality), memory (track applications and outcomes), explainability (why a role scored highly)
+
+**Phase 3 — Delivery + ops**
+Slack notifications, Docker, GitHub Actions cron, basic monitoring
+
+---
+
+## How you should behave
+
+**Before writing code:**
+- Explain the architecture and approach first
+- Wait for me to confirm I understand before proceeding
+- Name the tradeoffs in your approach — don't silently pick the easiest path
+
+**When writing code:**
+- Readable over clever — I need to understand every file
+- Comments explain *intent*, not mechanics
+- Modular — each agent must be independently testable
+- All secrets and config via environment variables, never hardcoded
+- Flag external dependencies and why each is needed
+- Flag anything requiring an API key or account setup
+- Write tests for core logic, including failure cases — not just happy paths
+
+**Always:**
+- Push back if I'm about to make a bad decision — tell me directly
+- Flag tech debt, brittleness, or known weaknesses in generated code
+- If I don't understand something, explain it plainly without dumbing it down
+- Don't over-engineer — working first, elegant second
+- Remind me when a decision has downstream implications I might not be thinking about
+
+---
+
+## Resume / career context (for scoring and generation agents)
+
+Detailed background, companies, targets, and positioning live in **`private/agent-context.md`** (gitignored — not committed). Read and use that file when matching roles or generating tailored resumes and cover letters; do not assume specifics that only appear there.
