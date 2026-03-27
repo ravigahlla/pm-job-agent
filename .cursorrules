@@ -10,10 +10,11 @@ Treat me as someone who can handle technical depth but needs architectural decis
 
 ## Project: pm-job-agent
 A multi-agent job hunting system built with LangGraph that:
-- Discovers PM roles from Greenhouse and Adzuna APIs
+- Discovers PM roles from job sources (see Stack)
 - Scores and ranks them against my background
 - Generates tailored resumes and cover letters
-- Delivers results via Slack on a weekday morning cron schedule via GitHub Actions
+- Compiles results into a spreadsheet (e.g. Google Sheets) for tracking
+- Runs on a weekday morning schedule via GitHub Actions (cron)
 
 ---
 
@@ -22,8 +23,9 @@ A multi-agent job hunting system built with LangGraph that:
 - **Orchestration:** LangGraph
 - **LLM calls:** Abstracted behind a model wrapper class — must be swappable between Claude, OpenAI, and Gemini without touching agent logic
 - **Job sources (Phase 1):** Greenhouse API, Adzuna API
+- **Job sources (planned after Phase 1):** Slack — ingest job posts from a group channel I belong to (not "broadcast results to Slack" as the primary output)
+- **Outputs:** Spreadsheet export (Google Sheets or CSV as a stepping stone); optional Slack notifications later if I want alerts
 - **Scheduling:** GitHub Actions cron (weekday mornings)
-- **Delivery:** Slack
 - **Containerization:** Docker
 - **No** Raspberry Pi, cloud server, or paid infrastructure in Phase 1
 
@@ -32,13 +34,13 @@ A multi-agent job hunting system built with LangGraph that:
 ## Build phases
 
 **Phase 1 — Core loop**
-Job discovery → role scoring/matching → tailored resume + cover letter generation
+Job discovery → role scoring/matching → tailored resume + cover letter generation → export ranked rows (CSV and/or spreadsheet)
 
 **Phase 2 — Intelligence layer**
 Eval framework (score output quality), memory (track applications and outcomes), explainability (why a role scored highly)
 
 **Phase 3 — Delivery + ops**
-Slack notifications, Docker, GitHub Actions cron, basic monitoring
+Spreadsheet sync (e.g. Google Sheets), optional Slack notifications, Docker, GitHub Actions cron, basic monitoring
 
 ---
 

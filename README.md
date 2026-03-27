@@ -1,10 +1,10 @@
 # pm-job-agent
 
-Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna), scoring against your background, tailored documents, and Slack delivery (see `.cursorrules` for goals and phases).
+Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna; later Slack channel ingestion), scoring against your background, tailored documents, spreadsheet export, and optional Slack alerts (see `.cursorrules` for goals and phases).
 
 ## Architecture
 
-High-level data flow: triggers run the LangGraph pipeline, which pulls jobs from board APIs, reads **local** career context (not in Git), calls an **LLM** through a swappable adapter, and produces ranked output plus optional **Slack** notifications. **API keys** and paths come from environment variables (`.env` locally, **GitHub Secrets** in CI).
+High-level data flow: triggers run the LangGraph pipeline, which **ingests** jobs from board APIs (and eventually from **Slack channel posts** where roles are shared), reads **local** career context (not in Git), calls an **LLM** through a swappable adapter, and writes **ranked rows** to a **spreadsheet** (Google Sheets or CSV as a dev-friendly step). **Slack as delivery** is optional later (e.g. pings); it is not the primary product output. **API keys** and paths come from environment variables (`.env` locally, **GitHub Secrets** in CI).
 
 ```mermaid
 flowchart TB
@@ -21,34 +21,38 @@ flowchart TB
     career[private_career_context]
   end
 
-  langGraph[LangGraph_pipeline]
-
-  subgraph integrations [External_HTTP_APIs]
-    ghAPI[Greenhouse]
-    adzAPI[Adzuna]
-    slack[Slack]
+  subgraph jobSources [Job_sources]
+    ghAPI[Greenhouse_API]
+    adzAPI[Adzuna_API]
+    slackIn[Slack_channel_posts_planned]
   end
+
+  langGraph[LangGraph_pipeline]
 
   llm[LLM_adapter]
 
   subgraph out [Outputs]
-    artifacts[Ranks_resume_and_cover_text]
+    artifacts[Ranked_jobs_and_documents]
+    sheets[Spreadsheet_Google_Sheets_or_CSV]
     optionalOut["outputs_or_var_on_disk"]
+    slackNotify[Slack_alerts_optional]
   end
 
   dev --> langGraph
   cron --> langGraph
   envVars --> langGraph
   career -->|"AGENT_CONTEXT_PATH"| langGraph
-  langGraph --> ghAPI
-  langGraph --> adzAPI
+  ghAPI --> langGraph
+  adzAPI --> langGraph
+  slackIn --> langGraph
   langGraph --> llm
   langGraph --> artifacts
-  langGraph --> slack
+  langGraph --> sheets
   langGraph --> optionalOut
+  langGraph --> slackNotify
 ```
 
-Package layout mirrors this flow: `integrations/` for HTTP clients, `agents/` and `graphs/` for LangGraph, `models/` for the LLM wrapper, `config/` for settings, `services/` for scoring and generation orchestration (see **Layout** below).
+Package layout mirrors this flow: `integrations/` for HTTP clients (boards, later Slack read), `agents/` and `graphs/` for LangGraph, `models/` for the LLM wrapper, `config/` for settings, `services/` for scoring, generation, and export orchestration (see **Layout** below).
 
 ## Setup
 
