@@ -2,9 +2,13 @@
 
 Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna; later Slack channel ingestion), scoring against your background, tailored documents, spreadsheet export, and optional Slack alerts (see `.cursorrules` for goals and phases).
 
+**What runs today:** From the CLI you get a full **pipeline skeleton**: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs (still an empty stub), **score** with placeholder values, then run a **stub** LLM for a short **digest**. That matches the “context → jobs → scores → narrative” shape so real integrations can drop in without reshaping the graph.
+
+**Not in code yet:** calling Greenhouse/Adzuna/Slack, real fit scoring, writing to Google Sheets/CSV, and optional Slack notifications. The diagram below is the **target** system; arrows through spreadsheet and Slack outputs describe intent, not shipped behavior.
+
 ## Architecture
 
-High-level data flow: triggers run the LangGraph pipeline, which **ingests** jobs from board APIs (and eventually from **Slack channel posts** where roles are shared), reads **local** career context (not in Git), calls an **LLM** through a swappable adapter, and writes **ranked rows** to a **spreadsheet** (Google Sheets or CSV as a dev-friendly step). **Slack as delivery** is optional later (e.g. pings); it is not the primary product output. **API keys** and paths come from environment variables (`.env` locally, **GitHub Secrets** in CI).
+Target data flow once the pieces exist: triggers run the LangGraph pipeline, which **ingests** jobs from board APIs (and eventually from **Slack channel posts**), reads **local** career context (not in Git), calls an **LLM** through a swappable adapter, and writes **ranked rows** to a **spreadsheet** (Google Sheets or CSV as a dev-friendly step). **Slack as delivery** is optional later (e.g. pings). **API keys** and paths come from environment variables (`.env` locally, **GitHub Secrets** in CI).
 
 ```mermaid
 flowchart TB
@@ -52,7 +56,7 @@ flowchart TB
   langGraph --> slackNotify
 ```
 
-Package layout mirrors this flow: `integrations/` for HTTP clients (boards, later Slack read), `agents/` and `graphs/` for LangGraph, `models/` for the LLM wrapper, `config/` for settings, `services/` for scoring, generation, and export orchestration (see **Layout** below).
+Package layout mirrors this flow. See **Layout** for a quick map of `config/`, `agents/` (one node per step), `graphs/` (`build_core_loop_graph`), `models/` (`LLMClient` + stub), `services/` (shared types), `integrations/` (HTTP clients when added), and `cli/`.
 
 ## Setup
 
@@ -147,6 +151,20 @@ Pulling new commits on a machine **that already has** `.venv`, `private/`, and `
 | `docker/` | Extra container assets (optional) |
 | `private/` | **Local only** — resume, project write-ups, agent context |
 
+Inside `src/pm_job_agent/`:
+
+| Path | Role |
+|------|------|
+| `config/` | Settings from `.env` (`AGENT_CONTEXT_PATH`, `DEFAULT_LLM_PROVIDER`, future API keys) |
+| `agents/` | Pipeline nodes: load context, discover, score, digest |
+| `graphs/` | LangGraph compile (`build_core_loop_graph`); package `__init__` uses a lazy import to avoid cycles |
+| `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` |
+| `services/` | Shared types (`JobDict`, `RankedJobDict`) |
+| `integrations/` | Reserved for HTTP clients (boards, Slack read) — empty stubs until wired |
+| `cli/` | `python -m pm_job_agent` |
+
+`tests/conftest.py` clears the cached `get_settings()` between tests so environment changes apply.
+
 Generated artifacts that might contain PII should go under `outputs/` or `var/` (both gitignored).
 
 ## Tests
@@ -157,12 +175,12 @@ pytest
 
 ## Core loop (Phase 1)
 
-After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the LangGraph pipeline once (loads `AGENT_CONTEXT_PATH`, discovers jobs — currently empty stub — scores, then runs the **stub LLM** for a short digest):
+After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the graph once. In plain terms the steps are: **read your private context file → fetch jobs (none yet) → attach placeholder scores → ask the stub LLM for a two-sentence style digest** so the wiring is real even before APIs land.
 
 ```bash
 python -m pm_job_agent
-# or
-pm-job-agent
+# equivalent if your venv’s scripts dir is on PATH:
+# pm-job-agent
 ```
 
 JSON state (includes full `agent_context` text — **do not paste into public channels**):
@@ -171,7 +189,7 @@ JSON state (includes full `agent_context` text — **do not paste into public ch
 python -m pm_job_agent --json
 ```
 
-`DEFAULT_LLM_PROVIDER=stub` is the default until real providers are wired (`get_llm_client`).
+`DEFAULT_LLM_PROVIDER=stub` is the default in `.env.example` until real providers are implemented in `get_llm_client()`.
 
 ## Docker
 
