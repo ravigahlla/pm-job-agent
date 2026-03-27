@@ -84,9 +84,32 @@ source .venv/bin/activate
 
 Use `PYTHON=/path/to/python3.12 ./scripts/bootstrap.sh` if `python3` is not the interpreter you want. **Windows (cmd/PowerShell):** use the manual venv steps above, or run the script under **Git Bash / WSL**.
 
-### Fresh clone checklist
+### After `git clone` or `git pull` on a new machine
 
-You need **Git**, a supported **Python** (see below), and network access for `pip` and API calls. After clone: run `./scripts/bootstrap.sh` (or create `.venv` and install manually), then recreate `private/` locally (it is not in the remote).
+`git` only updates **tracked** files. It does **not** restore local-only material. On every new computer (including a **Raspberry Pi** after you clone or pull this repo), you still need the items below.
+
+**In the remote (GitHub):** source code, `pyproject.toml`, `scripts/bootstrap.sh`, `.env.example`, `Dockerfile`, tests, README, etc.
+
+**Not in the remote (gitignored or never committed):** recreate or copy these yourself.
+
+| Path / item | What to do |
+|-------------|------------|
+| `private/` | Not in Git. Restore from your own backup (USB, encrypted sync, etc.) or recreate files such as `private/agent-context.md`. Without this, scoring and generation have no career context unless you point `AGENT_CONTEXT_PATH` elsewhere. |
+| `.env` | Not in Git. After clone, run `./scripts/bootstrap.sh` to create `.env` from `.env.example` **only if** `.env` is missing; then fill in real API keys. Or copy a backed-up `.env` onto the machine (bootstrap will not overwrite an existing `.env`). |
+| `.venv/` | Not in Git. Run `./scripts/bootstrap.sh` from the repo root, or create a venv and `pip install -e ".[dev]"` manually. |
+| `outputs/`, `var/` | Gitignored scratch/output dirs; created as needed. |
+
+**Suggested order after clone or `git pull` on a fresh environment:**
+
+1. Install **Git** and **Python 3.9+** (see the hardware table below). On Debian/Ubuntu-based systems you may need `build-essential` (and sometimes `python3-venv`) before bootstrap if packages must compile from source (common on **ARM** / Pi when wheels are missing).
+2. `cd` into the repo root.
+3. `./scripts/bootstrap.sh` (creates `.venv` and installs the package; seeds `.env` only if absent).
+4. Restore **`private/`** and ensure **`.env`** holds your real secrets (if bootstrap created `.env`, replace placeholders).
+5. `source .venv/bin/activate` and run `pytest`. In **Cursor / VS Code**, set **Python: Select Interpreter** to `./.venv/bin/python` so the editor matches the venv.
+
+Pulling new commits on a machine **that already has** `.venv`, `private/`, and `.env` usually only requires `git pull`; re-run `./scripts/bootstrap.sh` if `pyproject.toml` dependencies changed or you want a clean reinstall (`rm -rf .venv` first).
+
+**Raspberry Pi:** Phase 1 is not optimized for Pi (see `.cursorrules`). Expect slower `pip` installs and possible extra build tools on **ARM**. If dependency installs fail, install compilers (`sudo apt install build-essential python3-dev`) and retry. For a low-friction path, run the agent on a laptop or in **GitHub Actions** and use the Pi only if you accept that friction.
 
 ### Recommended hardware and OS
 
