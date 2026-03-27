@@ -4,59 +4,51 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** From the CLI you get a full **pipeline skeleton**: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs (still an empty stub), **score** with placeholder values, then run a **stub** LLM for a short **digest**. That matches the “context → jobs → scores → narrative” shape so real integrations can drop in without reshaping the graph.
 
-**Not in code yet:** calling Greenhouse/Adzuna/Slack, real fit scoring, writing to Google Sheets/CSV, and optional Slack notifications. The diagram below is the **target** system; arrows through spreadsheet and Slack outputs describe intent, not shipped behavior.
+**Not in code yet:** calling Greenhouse/Adzuna/Slack, real fit scoring, writing to Google Sheets/CSV, and optional Slack notifications. The diagram below is a **sample user journey**; today’s code runs through **read background → digest** with stubs where **gather**, **persist**, and Slack would plug in.
 
 ## Architecture
 
-Target data flow once the pieces exist: triggers run the LangGraph pipeline, which **ingests** jobs from board APIs (and eventually from **Slack channel posts**), reads **local** career context (not in Git), calls an **LLM** through a swappable adapter, and writes **ranked rows** to a **spreadsheet** (Google Sheets or CSV as a dev-friendly step). **Slack as delivery** is optional later (e.g. pings). **API keys** and paths come from environment variables (`.env` locally, **GitHub Secrets** in CI).
+Below is a **sample user flow** in order: what *you* do, how a run starts, what the *agent* does in the core loop, and how you close the loop. It maps to LangGraph (load context → discover → score → digest → export). **API keys** and paths live in `.env` (or **GitHub Secrets** in CI).
 
 ```mermaid
 flowchart TB
-  subgraph trigger [Run_triggers]
-    dev[Developer_CLI_or_Docker]
-    cron[GitHub_Actions_cron]
+  subgraph prep [You_prepare]
+    writeContext[Update_private_career_context]
+    writeEnv[Set_keys_paths_in_env]
   end
 
-  subgraph secrets [Secrets_and_config]
-    envVars[Environment_variables]
+  subgraph start [You_start_a_run]
+    manual[Run_CLI_or_Docker]
+    scheduled[Weekday_GitHub_Actions]
   end
 
-  subgraph localOnly [Gitignored_local]
-    career[private_career_context]
+  subgraph pipeline [Agent_steps]
+    loadBg[Load_background_into_state]
+    gather[Collect_jobs_boards_Slack]
+    rank[Score_each_role_vs_you]
+    draft[LLM_fit_notes_and_drafts]
+    persist[Write_sheet_CSV_or_folder]
   end
 
-  subgraph jobSources [Job_sources]
-    ghAPI[Greenhouse_API]
-    adzAPI[Adzuna_API]
-    slackIn[Slack_channel_posts_planned]
+  subgraph wrap [You_wrap_up]
+    triage[Review_apply_or_skip]
+    optionalPing[Optional_Slack_alert]
   end
 
-  langGraph[LangGraph_pipeline]
-
-  llm[LLM_adapter]
-
-  subgraph out [Outputs]
-    artifacts[Ranked_jobs_and_documents]
-    sheets[Spreadsheet_Google_Sheets_or_CSV]
-    optionalOut["outputs_or_var_on_disk"]
-    slackNotify[Slack_alerts_optional]
-  end
-
-  dev --> langGraph
-  cron --> langGraph
-  envVars --> langGraph
-  career -->|"AGENT_CONTEXT_PATH"| langGraph
-  ghAPI --> langGraph
-  adzAPI --> langGraph
-  slackIn --> langGraph
-  langGraph --> llm
-  langGraph --> artifacts
-  langGraph --> sheets
-  langGraph --> optionalOut
-  langGraph --> slackNotify
+  writeContext --> writeEnv
+  writeEnv --> manual
+  writeEnv --> scheduled
+  manual --> loadBg
+  scheduled --> loadBg
+  loadBg --> gather
+  gather --> rank
+  rank --> draft
+  draft --> persist
+  persist --> triage
+  triage -.-> optionalPing
 ```
 
-Package layout mirrors this flow. See **Layout** for a quick map of `config/`, `agents/` (one node per step), `graphs/` (`build_core_loop_graph`), `models/` (`LLMClient` + stub), `services/` (shared types), `integrations/` (HTTP clients when added), and `cli/`.
+Solid lines are the main path. **Gather** is where Greenhouse, Adzuna, and (later) Slack channel ingestion connect. **`-.->`** is optional and not implemented yet. Code layout: **Layout** maps these steps to `agents/`, `integrations/`, and `graphs/`.
 
 ## Setup
 
