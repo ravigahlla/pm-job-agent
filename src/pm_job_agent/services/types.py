@@ -21,3 +21,11 @@ class JobDict(_JobDictBase, total=False):
 
 class RankedJobDict(JobDict):
     score: float
+
+
+class DocumentDict(TypedDict):
+    """Generated resume note and cover letter opening for a single job."""
+
+    job_id: str
+    resume_note: str
+    cover_letter: str

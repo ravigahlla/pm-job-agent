@@ -2,9 +2,9 @@
 
 Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna; later Slack channel ingestion), scoring against your background, tailored documents, spreadsheet export, and optional Slack alerts (see `.cursorrules` for goals and phases).
 
-**What runs today:** From the CLI you get a live pipeline: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs from Greenhouse boards listed in `private/search_profile.yaml`, **score** each role with keyword-based matching (include/exclude keywords from your search profile), run a **stub** LLM for a short **digest**, then **write results to a timestamped CSV** in `outputs/`.
+**What runs today:** From the CLI you get a live pipeline: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs from Greenhouse boards listed in `private/search_profile.yaml`, **score** each role with keyword-based matching (include/exclude keywords from your search profile), run an LLM **digest**, **generate** a tailored resume note and cover letter opening for each qualifying job, then **write everything to a timestamped CSV** in `outputs/`. LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
 
-**Not in code yet:** Adzuna and Slack channel ingestion, Google Sheets sync, real LLM providers (OpenAI/Anthropic/Gemini), and optional Slack notifications. The diagram below is a **sample user journey**; today’s code covers **read background → gather (Greenhouse) → score → digest → CSV**, with stubs where Slack would plug in.
+**Not in code yet:** Adzuna and Slack channel ingestion, Google Sheets sync, and optional Slack notifications. The diagram below is a **sample user journey**; today’s code covers **read background → gather (Greenhouse) → score → digest → generate → CSV**, with stubs where Slack would plug in.
 
 ## Architecture
 
@@ -130,9 +130,23 @@ Pulling new commits on a machine **that already has** `.venv`, `private/`, and `
 
    Put real API keys and tokens only in `.env` or your shell. In GitHub Actions, use repository **Secrets**, not committed files.
 
-2. **Career context** — add or edit `private/agent-context.md` (gitignored). Optional: set `AGENT_CONTEXT_PATH` in `.env` to another path for CI or different machines.
+2. **LLM provider** — install the SDK for the provider you want and set the key in `.env`:
 
-3. **Search profile** — copy the template and fill in your targets:
+   | Provider | Install | `.env` keys |
+   |----------|---------|-------------|
+   | Anthropic (recommended) | `pip install -e ".[anthropic]"` | `ANTHROPIC_API_KEY`, optionally `ANTHROPIC_MODEL` |
+   | OpenAI | `pip install -e ".[openai]"` | `OPENAI_API_KEY`, optionally `OPENAI_MODEL` |
+   | Gemini | `pip install -e ".[gemini]"` | `GOOGLE_API_KEY`, optionally `GEMINI_MODEL` |
+   | Ollama (local, no key) | `pip install -e ".[ollama]"` | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+   | All providers | `pip install -e ".[llm-all]"` | — |
+
+   Then set `DEFAULT_LLM_PROVIDER=anthropic` (or your chosen provider) in `.env`. The default is `stub`, which makes no API calls and is used for CI and local runs without keys.
+
+   Document generation runs for jobs scoring at or above `MIN_SCORE_FOR_GENERATION` (default `0.3`). Adjust in `.env` to control how many jobs get a resume note and cover letter per run.
+
+3. **Career context** — add or edit `private/agent-context.md` (gitignored). Optional: set `AGENT_CONTEXT_PATH` in `.env` to another path for CI or different machines.
+
+4. **Search profile** — copy the template and fill in your targets:
 
    ```bash
    cp private/search_profile.yaml.example private/search_profile.yaml
@@ -158,7 +172,7 @@ Inside `src/pm_job_agent/`:
 | `config/` | Settings from `.env` (`AGENT_CONTEXT_PATH`, `DEFAULT_LLM_PROVIDER`, API keys); `SearchProfile` loaded from `private/search_profile.yaml` |
 | `agents/` | Pipeline nodes: load context, discover, score, digest |
 | `graphs/` | LangGraph compile (`build_core_loop_graph`); package `__init__` uses a lazy import to avoid cycles |
-| `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` |
+| `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama implementations |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`) |
 | `integrations/` | `greenhouse.py`: live Greenhouse board client; Adzuna and Slack read planned |
 | `cli/` | `python -m pm_job_agent` |
@@ -175,7 +189,7 @@ pytest
 
 ## Core loop (Phase 1)
 
-After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the graph once. In plain terms the steps are: **read your private context file → query each Greenhouse board in `search_profile.yaml` → keyword-score each role → ask the stub LLM for a two-sentence digest**. If `search_profile.yaml` has no board tokens, discovery returns an empty list and the rest of the pipeline still runs.
+After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the graph once. In plain terms the steps are: **read your private context file → query each Greenhouse board in `search_profile.yaml` → keyword-score each role → LLM digest → generate resume note + cover letter opening for qualifying jobs → write CSV**. If `search_profile.yaml` has no board tokens, discovery returns an empty list and the rest of the pipeline still runs.
 
 ```bash
 python -m pm_job_agent
@@ -189,7 +203,7 @@ JSON state (includes full `agent_context` text — **do not paste into public ch
 python -m pm_job_agent --json
 ```
 
-`DEFAULT_LLM_PROVIDER=stub` is the default in `.env.example` until real providers are implemented in `get_llm_client()`.
+`DEFAULT_LLM_PROVIDER=stub` is the default in `.env.example`. Switch to `anthropic`, `openai`, `gemini`, or `ollama` once you have the relevant API key — see the **LLM providers** section under Setup.
 
 ## Docker
 

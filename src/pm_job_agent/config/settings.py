@@ -41,6 +41,14 @@ class Settings(BaseSettings):
         description="stub | anthropic | openai | gemini | ollama",
     )
 
+    min_score_for_generation: float = Field(
+        default=0.3,
+        description=(
+            "Jobs scoring at or above this threshold trigger resume note + cover letter generation. "
+            "Range 0.0–1.0. Lower = more documents generated per run; higher = only strong matches."
+        ),
+    )
+
     # Model names — override via env vars (e.g. ANTHROPIC_MODEL=claude-opus-4-5) without code changes.
     anthropic_model: str = "claude-3-5-haiku-20241022"
     openai_model: str = "gpt-4o-mini"
