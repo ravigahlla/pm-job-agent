@@ -21,8 +21,15 @@ def test_core_loop_with_stub_llm() -> None:
     assert result.get("ranked_jobs") == []
 
 
-def test_score_jobs_attaches_placeholder_score() -> None:
+def test_score_jobs_no_keywords_scores_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With an empty search profile (no keywords), every job scores 0.0."""
     from pm_job_agent.agents.scoring import score_jobs
+
+    # Point settings at a non-existent profile so load_search_profile returns empty SearchProfile.
+    monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
+    get_settings.cache_clear()
 
     job: JobDict = {
         "id": "1",
@@ -34,7 +41,7 @@ def test_score_jobs_attaches_placeholder_score() -> None:
     }
     out = score_jobs({"jobs": [job]})
     assert len(out["ranked_jobs"]) == 1
-    assert out["ranked_jobs"][0]["score"] == 0.5
+    assert out["ranked_jobs"][0]["score"] == 0.0
 
 
 def test_load_agent_context_reads_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

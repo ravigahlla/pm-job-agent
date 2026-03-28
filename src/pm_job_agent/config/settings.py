@@ -22,6 +22,11 @@ class Settings(BaseSettings):
         description="Markdown file with career context for scoring and generation.",
     )
 
+    search_profile_path: Path = Field(
+        default=Path("private/search_profile.yaml"),
+        description="YAML file with search titles, keywords, and target company tokens.",
+    )
+
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None
     google_api_key: Optional[SecretStr] = None
