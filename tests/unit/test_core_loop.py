@@ -13,12 +13,20 @@ from pm_job_agent.models.llm import StubLLM
 from pm_job_agent.services.types import JobDict
 
 
-def test_core_loop_with_stub_llm() -> None:
+def test_core_loop_with_stub_llm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # No search profile → discovery returns empty; tmp_path → CSV written safely in test dir.
+    monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "outputs"))
+    get_settings.cache_clear()
+
     app = build_core_loop_graph(llm=StubLLM())
     result = app.invoke({})
     assert "digest" in result
     assert "[stub-llm]" in result["digest"]
     assert result.get("ranked_jobs") == []
+    assert "output_path" in result
 
 
 def test_score_jobs_no_keywords_scores_zero(

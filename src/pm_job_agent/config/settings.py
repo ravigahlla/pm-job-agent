@@ -27,6 +27,11 @@ class Settings(BaseSettings):
         description="YAML file with search titles, keywords, and target company tokens.",
     )
 
+    output_dir: Path = Field(
+        default=Path("outputs"),
+        description="Directory where timestamped CSV run files are written.",
+    )
+
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None
     google_api_key: Optional[SecretStr] = None

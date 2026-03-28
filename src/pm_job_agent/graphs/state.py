@@ -12,3 +12,4 @@ class CoreLoopState(TypedDict, total=False):
     jobs: list[JobDict]
     ranked_jobs: list[RankedJobDict]
     digest: str
+    output_path: str  # set by persist node; path of the CSV written this run
