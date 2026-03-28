@@ -38,8 +38,15 @@ class Settings(BaseSettings):
 
     default_llm_provider: str = Field(
         default="stub",
-        description="stub | openai | anthropic | gemini (only stub implemented in Phase 1 slice).",
+        description="stub | anthropic | openai | gemini | ollama",
     )
+
+    # Model names — override via env vars (e.g. ANTHROPIC_MODEL=claude-opus-4-5) without code changes.
+    anthropic_model: str = "claude-3-5-haiku-20241022"
+    openai_model: str = "gpt-4o-mini"
+    gemini_model: str = "gemini-1.5-flash"
+    ollama_model: str = "llama3.2"
+    ollama_base_url: str = "http://localhost:11434"
 
 
 @lru_cache

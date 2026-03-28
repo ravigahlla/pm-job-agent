@@ -25,6 +25,13 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+anthropic = ["anthropic>=0.25"]
+openai    = ["openai>=1.25"]
+# google-genai is the newer unified SDK (v1.0+); not google-generativeai (the older v0.x SDK).
+gemini    = ["google-genai>=1.0"]
+ollama    = ["ollama>=0.2"]
+# Install everything: pip install -e ".[llm-all]"
+llm-all   = ["anthropic>=0.25", "openai>=1.25", "google-genai>=1.0", "ollama>=0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
