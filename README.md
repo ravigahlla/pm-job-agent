@@ -2,9 +2,9 @@
 
 Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna; later Slack channel ingestion), scoring against your background, tailored documents, spreadsheet export, and optional Slack alerts (see `.cursorrules` for goals and phases).
 
-**What runs today:** From the CLI you get a full **pipeline skeleton**: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs (still an empty stub), **score** with placeholder values, then run a **stub** LLM for a short **digest**. That matches the “context → jobs → scores → narrative” shape so real integrations can drop in without reshaping the graph.
+**What runs today:** From the CLI you get a live pipeline: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs from Greenhouse boards listed in `private/search_profile.yaml`, **score** each role with keyword-based matching (include/exclude keywords from your search profile), then run a **stub** LLM for a short **digest**.
 
-**Not in code yet:** calling Greenhouse/Adzuna/Slack, real fit scoring, writing to Google Sheets/CSV, and optional Slack notifications. The diagram below is a **sample user journey**; today’s code runs through **read background → digest** with stubs where **gather**, **persist**, and Slack would plug in.
+**Not in code yet:** Adzuna and Slack channel ingestion, writing to Google Sheets/CSV, real LLM providers (OpenAI/Anthropic/Gemini), and optional Slack notifications. The diagram below is a **sample user journey**; today’s code covers **read background → gather (Greenhouse) → score → digest**, with stubs where **persist** and Slack would plug in.
 
 ## Architecture
 
@@ -94,7 +94,7 @@ Use `PYTHON=/path/to/python3.12 ./scripts/bootstrap.sh` if `python3` is not the 
 
 | Path / item | What to do |
 |-------------|------------|
-| `private/` | Not in Git. Restore from your own backup (USB, encrypted sync, etc.) or recreate files such as `private/agent-context.md`. Without this, scoring and generation have no career context unless you point `AGENT_CONTEXT_PATH` elsewhere. |
+| `private/` | Not in Git. Restore from your own backup or recreate. Two files matter: `agent-context.md` (career context for scoring/generation — point `AGENT_CONTEXT_PATH` elsewhere if needed) and `search_profile.yaml` (board tokens + keywords for discovery — without it Greenhouse returns zero jobs, but the run does not crash). |
 | `.env` | Not in Git. After clone, run `./scripts/bootstrap.sh` to create `.env` from `.env.example` **only if** `.env` is missing; then fill in real API keys. Or copy a backed-up `.env` onto the machine (bootstrap will not overwrite an existing `.env`). |
 | `.venv/` | Not in Git. Run `./scripts/bootstrap.sh` from the repo root, or create a venv and `pip install -e ".[dev]"` manually. |
 | `outputs/`, `var/` | Gitignored scratch/output dirs; created as needed. |
@@ -132,6 +132,14 @@ Pulling new commits on a machine **that already has** `.venv`, `private/`, and `
 
 2. **Career context** — add or edit `private/agent-context.md` (gitignored). Optional: set `AGENT_CONTEXT_PATH` in `.env` to another path for CI or different machines.
 
+3. **Search profile** — copy the template and fill in your targets:
+
+   ```bash
+   cp private/search_profile.yaml.example private/search_profile.yaml
+   ```
+
+   Edit `private/search_profile.yaml`: set `target_titles`, `include_keywords`, `exclude_keywords`, and `greenhouse_board_tokens` (the slug at the end of a company's `boards.greenhouse.io/<token>` URL). Without this file discovery returns zero jobs — the pipeline still runs, just empty.
+
 ## Layout
 
 | Path | Role |
@@ -147,12 +155,12 @@ Inside `src/pm_job_agent/`:
 
 | Path | Role |
 |------|------|
-| `config/` | Settings from `.env` (`AGENT_CONTEXT_PATH`, `DEFAULT_LLM_PROVIDER`, future API keys) |
+| `config/` | Settings from `.env` (`AGENT_CONTEXT_PATH`, `DEFAULT_LLM_PROVIDER`, API keys); `SearchProfile` loaded from `private/search_profile.yaml` |
 | `agents/` | Pipeline nodes: load context, discover, score, digest |
 | `graphs/` | LangGraph compile (`build_core_loop_graph`); package `__init__` uses a lazy import to avoid cycles |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`) |
-| `integrations/` | Reserved for HTTP clients (boards, Slack read) — empty stubs until wired |
+| `integrations/` | `greenhouse.py`: live Greenhouse board client; Adzuna and Slack read planned |
 | `cli/` | `python -m pm_job_agent` |
 
 `tests/conftest.py` clears the cached `get_settings()` between tests so environment changes apply.
@@ -167,7 +175,7 @@ pytest
 
 ## Core loop (Phase 1)
 
-After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the graph once. In plain terms the steps are: **read your private context file → fetch jobs (none yet) → attach placeholder scores → ask the stub LLM for a two-sentence style digest** so the wiring is real even before APIs land.
+After `./scripts/bootstrap.sh` and `source .venv/bin/activate`, run the graph once. In plain terms the steps are: **read your private context file → query each Greenhouse board in `search_profile.yaml` → keyword-score each role → ask the stub LLM for a two-sentence digest**. If `search_profile.yaml` has no board tokens, discovery returns an empty list and the rest of the pipeline still runs.
 
 ```bash
 python -m pm_job_agent
