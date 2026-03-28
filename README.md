@@ -2,9 +2,9 @@
 
 Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse, Adzuna; later Slack channel ingestion), scoring against your background, tailored documents, spreadsheet export, and optional Slack alerts (see `.cursorrules` for goals and phases).
 
-**What runs today:** From the CLI you get a live pipeline: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs from Greenhouse boards listed in `private/search_profile.yaml`, **score** each role with keyword-based matching (include/exclude keywords from your search profile), then run a **stub** LLM for a short **digest**.
+**What runs today:** From the CLI you get a live pipeline: load career context from `AGENT_CONTEXT_PATH`, **discover** jobs from Greenhouse boards listed in `private/search_profile.yaml`, **score** each role with keyword-based matching (include/exclude keywords from your search profile), run a **stub** LLM for a short **digest**, then **write results to a timestamped CSV** in `outputs/`.
 
-**Not in code yet:** Adzuna and Slack channel ingestion, writing to Google Sheets/CSV, real LLM providers (OpenAI/Anthropic/Gemini), and optional Slack notifications. The diagram below is a **sample user journey**; today’s code covers **read background → gather (Greenhouse) → score → digest**, with stubs where **persist** and Slack would plug in.
+**Not in code yet:** Adzuna and Slack channel ingestion, Google Sheets sync, real LLM providers (OpenAI/Anthropic/Gemini), and optional Slack notifications. The diagram below is a **sample user journey**; today’s code covers **read background → gather (Greenhouse) → score → digest → CSV**, with stubs where Slack would plug in.
 
 ## Architecture
 
