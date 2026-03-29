@@ -1,0 +1,86 @@
+# Runs the pm-job-agent pipeline on weekday mornings.
+#
+# Schedule: 11:00 UTC = 4am PT / 7am ET — off-peak for Anthropic API, in your
+# inbox before your work day starts.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   AGENT_CONTEXT_MD      — contents of private/agent-context.md
+#   SEARCH_PROFILE_YAML   — contents of private/search_profile.yaml
+#   ANTHROPIC_API_KEY     — (or whichever LLM provider you use)
+#   APIFY_API_TOKEN       — LinkedIn job scraping via Apify
+#   GMAIL_SENDER          — Gmail address that sends the digest
+#   GMAIL_APP_PASSWORD    — Gmail App Password (not your account password)
+#   NOTIFY_EMAIL          — recipient address for the digest email
+#
+# Optional secrets:
+#   OPENAI_API_KEY, GOOGLE_API_KEY — if you switch LLM providers
+#   NOTIFY_TOP_N          — override number of jobs in email (default: 20)
+#   SEEN_JOBS_TTL_DAYS    — override TTL for deduplication (default: 60)
+
+name: Daily job digest
+
+on:
+  schedule:
+    # Weekdays at 11:00 UTC (4am PT / 7am ET)
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch:  # Allow manual trigger from GitHub UI for testing
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[anthropic]"
+
+      # Restore seen_jobs.json from cache so deduplication works across runs.
+      # If the cache is missing (first run or eviction), the file simply won't
+      # exist and all jobs will appear as new — acceptable degraded behaviour.
+      - name: Restore seen_jobs cache
+        uses: actions/cache@v4
+        with:
+          path: private/seen_jobs.json
+          key: seen-jobs-v1
+          restore-keys: seen-jobs-v1
+
+      # Write gitignored private files from repository secrets.
+      - name: Write private config files
+        env:
+          AGENT_CONTEXT_MD: ${{ secrets.AGENT_CONTEXT_MD }}
+          SEARCH_PROFILE_YAML: ${{ secrets.SEARCH_PROFILE_YAML }}
+        run: |
+          mkdir -p private
+          printf '%s' "$AGENT_CONTEXT_MD" > private/agent-context.md
+          printf '%s' "$SEARCH_PROFILE_YAML" > private/search_profile.yaml
+
+      - name: Run pipeline
+        env:
+          DEFAULT_LLM_PROVIDER: anthropic
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          NOTIFY_TOP_N: ${{ secrets.NOTIFY_TOP_N }}
+          SEEN_JOBS_TTL_DAYS: ${{ secrets.SEEN_JOBS_TTL_DAYS }}
+        run: pm-job-agent run
+
+      # Save the updated seen_jobs.json so tomorrow's run knows what was seen today.
+      # This step runs even if the pipeline step fails — the cache should always
+      # reflect the latest known state.
+      - name: Save seen_jobs cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: private/seen_jobs.json
+          key: seen-jobs-v1
