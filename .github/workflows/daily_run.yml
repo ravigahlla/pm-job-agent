@@ -14,8 +14,6 @@
 #
 # Optional secrets:
 #   OPENAI_API_KEY, GOOGLE_API_KEY — if you switch LLM providers
-#   NOTIFY_TOP_N          — override number of jobs in email (default: 20)
-#   SEEN_JOBS_TTL_DAYS    — override TTL for deduplication (default: 60)
 
 name: Daily job digest
 
@@ -73,8 +71,8 @@ jobs:
           GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
-          NOTIFY_TOP_N: ${{ secrets.NOTIFY_TOP_N }}
-          SEEN_JOBS_TTL_DAYS: ${{ secrets.SEEN_JOBS_TTL_DAYS }}
+          # NOTIFY_TOP_N and SEEN_JOBS_TTL_DAYS use defaults from settings.py (20 and 60).
+          # Only add these as secrets if you need to override them.
         run: pm-job-agent run
 
       # Save seen_jobs.json only if the file exists (it won't on a failed first run).
