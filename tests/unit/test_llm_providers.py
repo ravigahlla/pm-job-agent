@@ -50,8 +50,10 @@ class TestGetLLMClientFactory:
     def test_anthropic_missing_api_key_raises_value_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # setenv overrides the .env file value; delenv alone does not since
+        # pydantic_settings reads the file directly.
         monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "anthropic")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
         get_settings.cache_clear()
         with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
             get_llm_client()
@@ -60,7 +62,7 @@ class TestGetLLMClientFactory:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "openai")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "")
         get_settings.cache_clear()
         with pytest.raises(ValueError, match="OPENAI_API_KEY"):
             get_llm_client()
@@ -69,7 +71,7 @@ class TestGetLLMClientFactory:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "gemini")
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.setenv("GOOGLE_API_KEY", "")
         get_settings.cache_clear()
         with pytest.raises(ValueError, match="GOOGLE_API_KEY"):
             get_llm_client()

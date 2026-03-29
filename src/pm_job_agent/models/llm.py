@@ -38,12 +38,13 @@ def _import_provider(module_path: str, class_name: str, extra: str) -> Any:
 
 
 def _require_key(secret: Any, env_var: str, provider: str) -> str:
-    """Unwrap a SecretStr API key or raise a clear error if it is not set."""
-    if secret is None:
+    """Unwrap a SecretStr API key or raise a clear error if it is not set or empty."""
+    value = secret.get_secret_value() if secret is not None else ""
+    if not value.strip():
         raise ValueError(
             f"DEFAULT_LLM_PROVIDER={provider!r} requires {env_var} to be set in .env"
         )
-    return secret.get_secret_value()
+    return value
 
 
 def get_llm_client() -> LLMClient:
