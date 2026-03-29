@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     google_api_key: Optional[SecretStr] = None
     apify_api_token: Optional[SecretStr] = None
 
+    # Email digest (Gmail SMTP) — all optional; notify step skips if app password is absent.
+    gmail_sender: Optional[str] = None
+    gmail_app_password: Optional[SecretStr] = None
+    notify_email: Optional[str] = None
+    notify_top_n: int = Field(default=20, description="Max jobs to include in the email digest table.")
+
     default_llm_provider: str = Field(
         default="stub",
         description="stub | anthropic | openai | gemini | ollama",
