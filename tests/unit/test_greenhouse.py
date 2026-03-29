@@ -217,3 +217,49 @@ class TestScoreJob:
         profile = SearchProfile(include_keywords=["saas"])
         score = _score_job(self._job(snippet="Built a SaaS product"), profile)
         assert score == pytest.approx(0.2)
+
+    # --- location filtering ---
+
+    def test_matching_location_does_not_affect_score(self) -> None:
+        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
+        score = _score_job(self._job(title="AI PM"), profile)
+        # No location on the base job — passes through unchanged
+        assert score == pytest.approx(0.2)
+
+    def test_job_location_matches_configured_location(self) -> None:
+        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
+        job = {**self._job(title="AI PM"), "location": "Remote"}
+        assert _score_job(job, profile) == pytest.approx(0.2)
+
+    def test_job_location_substring_match(self) -> None:
+        """'San Francisco' should match 'San Francisco, CA'."""
+        profile = SearchProfile(locations=["San Francisco"])
+        job = {**self._job(), "location": "San Francisco, CA"}
+        assert _score_job(job, profile) == pytest.approx(0.0)  # no include kws, but not disqualified
+
+    def test_job_location_no_match_zeroes_score(self) -> None:
+        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
+        job = {**self._job(title="AI PM"), "location": "New York, NY"}
+        assert _score_job(job, profile) == 0.0
+
+    def test_empty_locations_skips_location_filter(self) -> None:
+        """locations = [] means no location filtering — existing behaviour preserved."""
+        profile = SearchProfile(include_keywords=["AI"], locations=[])
+        job = {**self._job(title="AI PM"), "location": "New York, NY"}
+        assert _score_job(job, profile) == pytest.approx(0.2)
+
+    def test_blank_job_location_not_disqualified(self) -> None:
+        """A job with no location field passes through even if locations are configured."""
+        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
+        job = {**self._job(title="AI PM"), "location": ""}
+        assert _score_job(job, profile) == pytest.approx(0.2)
+
+    def test_location_filter_case_insensitive(self) -> None:
+        profile = SearchProfile(locations=["remote"])
+        job = {**self._job(), "location": "Remote"}
+        # Matches — score is 0.0 only because no include keywords, not because of location
+        assert _score_job(job, profile) == pytest.approx(0.0)
+        # Now confirm it would NOT be 0 from location disqualification:
+        profile_with_kw = SearchProfile(include_keywords=["PM"], locations=["remote"])
+        job2 = {**self._job(title="Senior PM"), "location": "Remote"}
+        assert _score_job(job2, profile_with_kw) == pytest.approx(0.2)

@@ -2,9 +2,13 @@
 
 Scoring logic (simple keyword pass):
   - Base score: 0.0
+  - Score → 0.0 immediately if any exclude_keyword is found in title or description (disqualified)
+  - Score → 0.0 if locations are configured, the job has a location, and it matches none of them
   - +0.2 for each include_keyword found in title or description_snippet (case-insensitive)
-  - Score → 0.0 immediately if any exclude_keyword is found (disqualified)
   - Final score is clamped to [0.0, 1.0]
+
+Location matching is substring and case-insensitive: "San Francisco" matches "San Francisco, CA".
+Jobs with a blank location field are never disqualified by location — blank means unknown, not wrong.
 
 This is intentionally simple — good enough for Phase 1 ranking. A real fit score
 (matching against agent_context, seniority signals, company stage) belongs in Phase 2.
@@ -51,6 +55,14 @@ def _score_job(job: JobDict, profile: SearchProfile) -> float:
     # Disqualify first — no point boosting something we'd reject.
     for kw in profile.exclude_keywords:
         if kw.lower() in haystack:
+            return _SCORE_MIN
+
+    # Location filter — only runs when locations are configured and the job has a location.
+    # Blank location is treated as unknown and passes through.
+    job_location = job.get("location", "")
+    if profile.locations and job_location:
+        job_loc_lower = job_location.lower()
+        if not any(loc.lower() in job_loc_lower for loc in profile.locations):
             return _SCORE_MIN
 
     score = _SCORE_MIN
