@@ -1,5 +1,9 @@
 """Send a formatted HTML email digest after each pipeline run via Gmail SMTP.
 
+The email shows only jobs that are NEW this run (not seen in any previous run).
+If no new jobs exist, a short "nothing new today" message is sent so you know
+the pipeline ran successfully.
+
 Skips silently if GMAIL_APP_PASSWORD is not configured — the pipeline always
 completes regardless of notification status.
 
@@ -28,18 +32,24 @@ _SMTP_PORT = 587
 
 
 def send_digest_email(
-    ranked_jobs: list[RankedJobDict],
+    new_jobs: list[RankedJobDict],
+    all_job_count: int,
     digest: str,
     output_path: str,
     *,
     settings: Settings,
 ) -> None:
     """Build and send the HTML digest email. Raises on SMTP errors."""
-    subject = (
-        f"[pm-job-agent] {len(ranked_jobs)} roles found \u2013 {date.today().isoformat()}"
-    )
-    html = _build_html(ranked_jobs, digest, output_path, settings.notify_top_n)
-    plain = _build_plain(ranked_jobs, digest, output_path, settings.notify_top_n)
+    if new_jobs:
+        subject = (
+            f"[pm-job-agent] {len(new_jobs)} new role{'s' if len(new_jobs) != 1 else ''} "
+            f"\u2013 {date.today().isoformat()}"
+        )
+    else:
+        subject = f"[pm-job-agent] Nothing new today \u2013 {date.today().isoformat()}"
+
+    html = _build_html(new_jobs, all_job_count, digest, output_path, settings.notify_top_n)
+    plain = _build_plain(new_jobs, all_job_count, digest, output_path, settings.notify_top_n)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -55,7 +65,12 @@ def send_digest_email(
         server.login(settings.gmail_sender, password)
         server.sendmail(settings.gmail_sender, settings.notify_email, msg.as_string())
 
-    logger.info("Digest email sent to %s (%d jobs).", settings.notify_email, len(ranked_jobs))
+    logger.info(
+        "Digest email sent to %s (%d new jobs, %d total).",
+        settings.notify_email,
+        len(new_jobs),
+        all_job_count,
+    )
 
 
 def notify(state: CoreLoopState, *, settings: Settings) -> dict:
@@ -74,12 +89,21 @@ def notify(state: CoreLoopState, *, settings: Settings) -> dict:
         )
         return {}
 
-    ranked_jobs = state.get("ranked_jobs") or []
+    all_ranked = state.get("ranked_jobs") or []
+    new_job_ids = set(state.get("new_job_ids") or [])
+    new_jobs = [j for j in all_ranked if j.get("id") in new_job_ids]
+
     digest = state.get("digest") or ""
     output_path = state.get("output_path") or ""
 
     try:
-        send_digest_email(ranked_jobs, digest, output_path, settings=settings)
+        send_digest_email(
+            new_jobs,
+            len(all_ranked),
+            digest,
+            output_path,
+            settings=settings,
+        )
     except Exception:
         # Notification failure must not crash the pipeline — the CSV is already written.
         logger.exception("Failed to send digest email — run completed normally.")
@@ -97,14 +121,33 @@ def make_notify_node(settings: Settings):
 # --- HTML / plain-text builders ---
 
 def _build_html(
-    ranked_jobs: list[RankedJobDict],
+    new_jobs: list[RankedJobDict],
+    all_job_count: int,
     digest: str,
     output_path: str,
     top_n: int,
 ) -> str:
-    rows = _job_rows_html(ranked_jobs[:top_n])
-    total = len(ranked_jobs)
-    shown = min(top_n, total)
+    if new_jobs:
+        shown = min(top_n, len(new_jobs))
+        table_section = f"""
+<p>Showing {shown} of {len(new_jobs)} new role{'s' if len(new_jobs) != 1 else ''} (out of {all_job_count} discovered):</p>
+<table>
+  <thead>
+    <tr>
+      <th>#</th><th>Score</th><th>Role</th><th>Company</th><th>Location</th>
+    </tr>
+  </thead>
+  <tbody>
+{_job_rows_html(new_jobs[:top_n])}
+  </tbody>
+</table>"""
+    else:
+        table_section = (
+            f'<p style="color:#666;">No new roles found today — '
+            f"all {all_job_count} discovered job{'s' if all_job_count != 1 else ''} "
+            f"were already seen in a previous run.</p>"
+        )
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -130,17 +173,7 @@ def _build_html(
 <body>
 <h2>pm-job-agent &mdash; {date.today().isoformat()}</h2>
 <p class="digest">{digest}</p>
-<p>Showing top {shown} of {total} scored roles:</p>
-<table>
-  <thead>
-    <tr>
-      <th>#</th><th>Score</th><th>Role</th><th>Company</th><th>Location</th>
-    </tr>
-  </thead>
-  <tbody>
-{rows}
-  </tbody>
-</table>
+{table_section}
 <div class="footer">
   <p>CSV saved to: <code>{output_path}</code></p>
   <p>To generate tailored documents, open the CSV, set <code>flagged</code> to <code>yes</code>
@@ -170,7 +203,8 @@ def _job_rows_html(jobs: list[RankedJobDict]) -> str:
 
 
 def _build_plain(
-    ranked_jobs: list[RankedJobDict],
+    new_jobs: list[RankedJobDict],
+    all_job_count: int,
     digest: str,
     output_path: str,
     top_n: int,
@@ -180,20 +214,29 @@ def _build_plain(
         "",
         digest,
         "",
-        f"Top {min(top_n, len(ranked_jobs))} of {len(ranked_jobs)} roles:",
-        "-" * 60,
     ]
-    for i, job in enumerate(ranked_jobs[:top_n], start=1):
+    if new_jobs:
+        shown = min(top_n, len(new_jobs))
+        lines += [
+            f"New roles: {shown} of {len(new_jobs)} new (out of {all_job_count} discovered):",
+            "-" * 60,
+        ]
+        for i, job in enumerate(new_jobs[:top_n], start=1):
+            lines.append(
+                f"{i:>2}. [{job.get('score', 0):.1f}] {job.get('title', '')} "
+                f"@ {job.get('company', '')} — {job.get('location', '')}"
+            )
+            if job.get("url"):
+                lines.append(f"     {job['url']}")
+    else:
         lines.append(
-            f"{i:>2}. [{job.get('score', 0):.1f}] {job.get('title', '')} "
-            f"@ {job.get('company', '')} — {job.get('location', '')}"
+            f"Nothing new today — all {all_job_count} discovered jobs were already seen."
         )
-        if job.get("url"):
-            lines.append(f"     {job['url']}")
+
     lines += [
         "",
         f"CSV: {output_path}",
-        f"To generate documents: set flagged=yes in the CSV, then run:",
+        "To generate documents: set flagged=yes in the CSV, then run:",
         f"  pm-job-agent generate {output_path}",
     ]
     return "\n".join(lines)

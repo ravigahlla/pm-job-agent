@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     google_api_key: Optional[SecretStr] = None
     apify_api_token: Optional[SecretStr] = None
 
+    # Cross-run deduplication — tracks seen job IDs so the email only surfaces new roles.
+    seen_jobs_path: Path = Field(
+        default=Path("private/seen_jobs.json"),
+        description="JSON file storing job IDs seen in previous runs (gitignored).",
+    )
+    seen_jobs_ttl_days: int = Field(
+        default=60,
+        description="Days before a seen job ID expires and can be surfaced again.",
+    )
+
     # Email digest (Gmail SMTP) — all optional; notify step skips if app password is absent.
     gmail_sender: Optional[str] = None
     gmail_app_password: Optional[SecretStr] = None

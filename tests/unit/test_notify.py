@@ -35,9 +35,16 @@ def _settings(**overrides) -> Settings:
     return Settings(**defaults)
 
 
-def _job(title="AI PM", company="Acme", location="Remote", score=0.4, url="https://example.com/job") -> RankedJobDict:
+def _job(
+    title="AI PM",
+    company="Acme",
+    location="Remote",
+    score=0.4,
+    url="https://example.com/job",
+    job_id="test:1",
+) -> RankedJobDict:
     return RankedJobDict(
-        id="test:1",
+        id=job_id,
         title=title,
         company=company,
         location=location,
@@ -48,9 +55,11 @@ def _job(title="AI PM", company="Acme", location="Remote", score=0.4, url="https
     )
 
 
-SAMPLE_JOBS = [_job(title=f"PM Role {i}", score=round(0.6 - i * 0.1, 1)) for i in range(5)]
+SAMPLE_JOBS = [_job(title=f"PM Role {i}", job_id=f"test:{i}", score=round(0.6 - i * 0.1, 1)) for i in range(5)]
+SAMPLE_NEW_IDS = {j["id"] for j in SAMPLE_JOBS}
 SAMPLE_DIGEST = "Strong match for AI-focused companies."
 SAMPLE_PATH = "outputs/run_20260101_120000.csv"
+ALL_JOB_COUNT = len(SAMPLE_JOBS)
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +73,13 @@ class TestSendDigestEmail:
             mock_server = MagicMock()
             mock_smtp_cls.return_value.__enter__.return_value = mock_server
 
-            send_digest_email(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
+            send_digest_email(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
 
         mock_server.starttls.assert_called_once()
         mock_server.login.assert_called_once_with("sender@gmail.com", "test-app-password")
         mock_server.sendmail.assert_called_once()
 
-    def test_subject_contains_job_count_and_date(self) -> None:
+    def test_subject_contains_new_job_count(self) -> None:
         settings = _settings()
         captured_msg: list[str] = []
         with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
@@ -78,14 +87,27 @@ class TestSendDigestEmail:
             mock_smtp_cls.return_value.__enter__.return_value = mock_server
             mock_server.sendmail.side_effect = lambda f, t, msg: captured_msg.append(msg)
 
-            send_digest_email(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
+            send_digest_email(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
 
         assert captured_msg, "sendmail was not called"
-        # The raw MIME message encodes the subject — parse it to get the decoded value.
         parsed = email_lib.message_from_string(captured_msg[0])
         decoded_subject = str(email_lib.header.make_header(email_lib.header.decode_header(parsed["Subject"])))
         assert "[pm-job-agent]" in decoded_subject
-        assert "5 roles found" in decoded_subject
+        assert "5 new role" in decoded_subject
+
+    def test_subject_says_nothing_new_when_no_jobs(self) -> None:
+        settings = _settings()
+        captured_msg: list[str] = []
+        with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
+            mock_server = MagicMock()
+            mock_smtp_cls.return_value.__enter__.return_value = mock_server
+            mock_server.sendmail.side_effect = lambda f, t, msg: captured_msg.append(msg)
+
+            send_digest_email([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
+
+        parsed = email_lib.message_from_string(captured_msg[0])
+        decoded_subject = str(email_lib.header.make_header(email_lib.header.decode_header(parsed["Subject"])))
+        assert "Nothing new today" in decoded_subject
 
     def test_uses_correct_smtp_credentials(self) -> None:
         settings = _settings(gmail_sender="other@gmail.com", gmail_app_password="secret-pw")
@@ -93,19 +115,20 @@ class TestSendDigestEmail:
             mock_server = MagicMock()
             mock_smtp_cls.return_value.__enter__.return_value = mock_server
 
-            send_digest_email([], SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
+            send_digest_email([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings)
 
         mock_server.login.assert_called_once_with("other@gmail.com", "secret-pw")
 
 
 # ---------------------------------------------------------------------------
-# notify node — skip conditions and error handling
+# notify node — skip conditions, filtering, and error handling
 # ---------------------------------------------------------------------------
 
 class TestNotifyNode:
     def test_skips_when_no_app_password(self, caplog) -> None:
         settings = _settings(gmail_app_password=None)
-        state = {"ranked_jobs": SAMPLE_JOBS, "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
+        state = {"ranked_jobs": SAMPLE_JOBS, "new_job_ids": list(SAMPLE_NEW_IDS),
+                 "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
 
         with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
             result = notify(state, settings=settings)
@@ -115,7 +138,8 @@ class TestNotifyNode:
 
     def test_skips_when_sender_missing(self, caplog) -> None:
         settings = _settings(gmail_sender=None)
-        state = {"ranked_jobs": SAMPLE_JOBS, "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
+        state = {"ranked_jobs": SAMPLE_JOBS, "new_job_ids": list(SAMPLE_NEW_IDS),
+                 "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
 
         with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
             result = notify(state, settings=settings)
@@ -125,7 +149,8 @@ class TestNotifyNode:
 
     def test_skips_when_recipient_missing(self, caplog) -> None:
         settings = _settings(notify_email=None)
-        state = {"ranked_jobs": SAMPLE_JOBS, "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
+        state = {"ranked_jobs": SAMPLE_JOBS, "new_job_ids": list(SAMPLE_NEW_IDS),
+                 "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
 
         with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
             result = notify(state, settings=settings)
@@ -136,7 +161,8 @@ class TestNotifyNode:
     def test_returns_empty_dict_on_smtp_error(self) -> None:
         """SMTP failure must not raise — pipeline should complete normally."""
         settings = _settings()
-        state = {"ranked_jobs": SAMPLE_JOBS, "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
+        state = {"ranked_jobs": SAMPLE_JOBS, "new_job_ids": list(SAMPLE_NEW_IDS),
+                 "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
 
         with patch("pm_job_agent.agents.notify.smtplib.SMTP") as mock_smtp_cls:
             mock_smtp_cls.side_effect = ConnectionRefusedError("SMTP unreachable")
@@ -144,16 +170,42 @@ class TestNotifyNode:
 
         assert result == {}
 
-    def test_calls_send_when_fully_configured(self) -> None:
+    def test_filters_to_new_jobs_only(self) -> None:
+        """Only jobs whose ID is in new_job_ids should be passed to send_digest_email."""
         settings = _settings()
-        state = {"ranked_jobs": SAMPLE_JOBS, "digest": SAMPLE_DIGEST, "output_path": SAMPLE_PATH}
+        new_job = _job(title="New Role", job_id="new:1")
+        old_job = _job(title="Old Role", job_id="old:1")
+        state = {
+            "ranked_jobs": [new_job, old_job],
+            "new_job_ids": ["new:1"],
+            "digest": SAMPLE_DIGEST,
+            "output_path": SAMPLE_PATH,
+        }
 
         with patch("pm_job_agent.agents.notify.send_digest_email") as mock_send:
             notify(state, settings=settings)
 
-        mock_send.assert_called_once_with(
-            SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, settings=settings
-        )
+        call_args = mock_send.call_args
+        sent_new_jobs = call_args[0][0]
+        assert len(sent_new_jobs) == 1
+        assert sent_new_jobs[0]["id"] == "new:1"
+
+    def test_sends_nothing_new_when_all_jobs_seen(self) -> None:
+        """If new_job_ids is empty, send_digest_email is still called (nothing new message)."""
+        settings = _settings()
+        state = {
+            "ranked_jobs": SAMPLE_JOBS,
+            "new_job_ids": [],
+            "digest": SAMPLE_DIGEST,
+            "output_path": SAMPLE_PATH,
+        }
+
+        with patch("pm_job_agent.agents.notify.send_digest_email") as mock_send:
+            notify(state, settings=settings)
+
+        call_args = mock_send.call_args
+        sent_new_jobs = call_args[0][0]
+        assert sent_new_jobs == []
 
     def test_make_notify_node_returns_callable(self) -> None:
         settings = _settings(gmail_app_password=None)
@@ -174,43 +226,53 @@ class TestNotifyNode:
 
 class TestBuildHtml:
     def test_contains_job_titles(self) -> None:
-        html = _build_html(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
         for job in SAMPLE_JOBS:
             assert job["title"] in html
 
     def test_respects_top_n_limit(self) -> None:
-        jobs = [_job(title=f"Role {i}") for i in range(10)]
-        html = _build_html(jobs, SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
+        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}") for i in range(10)]
+        html = _build_html(jobs, len(jobs), SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
         assert "Role 0" in html
         assert "Role 2" in html
         assert "Role 3" not in html
 
     def test_contains_digest_text(self) -> None:
-        html = _build_html(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
         assert SAMPLE_DIGEST in html
 
     def test_contains_csv_path(self) -> None:
-        html = _build_html(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
         assert SAMPLE_PATH in html
 
     def test_job_urls_are_hyperlinks(self) -> None:
-        html = _build_html([_job(url="https://example.com/job1")], SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(
+            [_job(url="https://example.com/job1")], 1, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10
+        )
         assert 'href="https://example.com/job1"' in html
+
+    def test_shows_nothing_new_message_when_empty(self) -> None:
+        html = _build_html([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        assert "No new roles found today" in html
 
 
 class TestBuildPlain:
     def test_contains_job_titles(self) -> None:
-        plain = _build_plain(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        plain = _build_plain(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
         for job in SAMPLE_JOBS:
             assert job["title"] in plain
 
     def test_respects_top_n_limit(self) -> None:
-        jobs = [_job(title=f"Role {i}") for i in range(10)]
-        plain = _build_plain(jobs, SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
+        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}") for i in range(10)]
+        plain = _build_plain(jobs, len(jobs), SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
         assert "Role 0" in plain
         assert "Role 3" not in plain
 
     def test_contains_generate_command(self) -> None:
-        plain = _build_plain(SAMPLE_JOBS, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        plain = _build_plain(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
         assert "pm-job-agent generate" in plain
         assert SAMPLE_PATH in plain
+
+    def test_shows_nothing_new_message_when_empty(self) -> None:
+        plain = _build_plain([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        assert "Nothing new today" in plain

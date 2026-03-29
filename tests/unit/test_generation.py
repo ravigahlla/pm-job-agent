@@ -145,7 +145,7 @@ class TestPersistWithDocuments:
         job = _make_job("j1", 0.8)
         out = tmp_path / "out.csv"
         # Write the initial CSV (empty docs)
-        _write_csv(out, [job])
+        _write_csv(out, [job], set())
 
         # Simulate what the generate command does: read, update, write back
         with out.open(encoding="utf-8") as fh:
@@ -168,7 +168,7 @@ class TestPersistWithDocuments:
         from pm_job_agent.agents.persist import _write_csv
 
         out = tmp_path / "out.csv"
-        _write_csv(out, [_make_job()])
+        _write_csv(out, [_make_job()], set())
 
         with out.open(encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))

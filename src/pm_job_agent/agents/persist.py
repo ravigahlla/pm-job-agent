@@ -1,15 +1,18 @@
 """Write pipeline results to a timestamped CSV in the configured output directory.
 
-This is the final node in the core loop. It always writes a file — even when
+This is the persist node in the core loop. It always writes a file — even when
 ranked_jobs is empty — so every run produces a record on disk.
 
 Column order is optimised for reviewing in a spreadsheet:
-  score, flagged, title, company, location, url, source, id,
+  score, flagged, new, title, company, location, url, source, id,
   description_snippet, resume_note, cover_letter
 
 The `flagged` column is empty after a run. Set it to "yes" for roles you want
 to apply to, then run `pm-job-agent generate <this_file>` to generate documents
 for those specific rows.
+
+The `new` column is "yes" for jobs not seen in any previous run, empty otherwise.
+After writing the CSV, seen_jobs.json is updated with all job IDs from this run.
 """
 
 from __future__ import annotations
@@ -21,17 +24,18 @@ from pathlib import Path
 
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.graphs.state import CoreLoopState
+from pm_job_agent.services.seen_jobs import add_job_ids, load_seen, save_seen
 
 logger = logging.getLogger(__name__)
 
 _COLUMNS = [
-    "score", "flagged", "title", "company", "location", "url", "source", "id",
+    "score", "flagged", "new", "title", "company", "location", "url", "source", "id",
     "description_snippet", "resume_note", "cover_letter",
 ]
 
 
 def persist_jobs(state: CoreLoopState) -> dict:
-    """Write ranked_jobs to a CSV. Documents are generated separately on demand."""
+    """Write ranked_jobs to a CSV and update seen_jobs.json."""
     settings = get_settings()
     output_dir = Path(settings.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -40,13 +44,20 @@ def persist_jobs(state: CoreLoopState) -> dict:
     output_path = output_dir / f"run_{timestamp}.csv"
 
     ranked = state.get("ranked_jobs") or []
-    _write_csv(output_path, ranked)
+    new_job_ids = set(state.get("new_job_ids") or [])
+    _write_csv(output_path, ranked, new_job_ids)
 
-    logger.info("Wrote %d job(s) to %s", len(ranked), output_path)
+    # Update seen_jobs.json with all job IDs from this run.
+    all_ids = [job["id"] for job in ranked if job.get("id")]
+    seen = load_seen(settings.seen_jobs_path, ttl_days=settings.seen_jobs_ttl_days)
+    updated_seen = add_job_ids(seen, all_ids)
+    save_seen(settings.seen_jobs_path, updated_seen)
+
+    logger.info("Wrote %d job(s) to %s (%d new).", len(ranked), output_path, len(new_job_ids))
     return {"output_path": str(output_path)}
 
 
-def _write_csv(path: Path, ranked_jobs: list) -> None:
+def _write_csv(path: Path, ranked_jobs: list, new_job_ids: set) -> None:
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=_COLUMNS, extrasaction="ignore")
         writer.writeheader()
@@ -54,6 +65,7 @@ def _write_csv(path: Path, ranked_jobs: list) -> None:
             row = {col: job.get(col, "") for col in _COLUMNS}
             # flagged is always empty on initial write; user fills it in for roles they want to pursue
             row["flagged"] = ""
+            row["new"] = "yes" if job.get("id") in new_job_ids else ""
             row["resume_note"] = ""
             row["cover_letter"] = ""
             writer.writerow(row)
