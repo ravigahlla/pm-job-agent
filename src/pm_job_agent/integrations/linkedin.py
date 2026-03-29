@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import timedelta
 
 from pm_job_agent.services.types import JobDict
 
@@ -59,14 +58,14 @@ class LinkedInClient:
 
         client = ApifyClient(token=self._api_token)
         run_input = {
-            "searchKeywords": search_query,
+            "searchQuery": search_query,
             "maxResults": self._max_results,
         }
 
         try:
             run = client.actor(_ACTOR_ID).call(
                 run_input=run_input,
-                timeout=timedelta(seconds=120),
+                wait_secs=120,
             )
         except Exception as exc:
             raise LinkedInError(
@@ -101,24 +100,28 @@ class LinkedInClient:
 def _map_item(item: dict) -> JobDict | None:
     """Map a single Actor output item to JobDict. Returns None if required fields are missing."""
     title = item.get("title") or item.get("jobTitle") or ""
-    # Actor may return company as "company" or "companyName"
-    company = item.get("company") or item.get("companyName") or ""
-    url = item.get("jobUrl") or item.get("url") or ""
+    # Actor returns company as "companyName"; fall back to "company" for other Actor versions
+    company = item.get("companyName") or item.get("company") or ""
+    # Actor returns "url"; "jobUrl" kept as fallback for other Actor versions
+    url = item.get("url") or item.get("jobUrl") or ""
 
     if not title or not url:
         logger.warning("Skipping LinkedIn item missing title or url: %s", item)
         return None
 
-    job_id = _extract_job_id(url)
-    if not job_id:
-        logger.warning("Could not extract job ID from LinkedIn URL '%s' — skipping.", url)
+    # Prefer the top-level numeric "id" field the Actor provides directly;
+    # fall back to extracting from URL for resilience against schema changes
+    raw_id = str(item["id"]) if item.get("id") else _extract_job_id(url)
+    if not raw_id:
+        logger.warning("Could not determine job ID for LinkedIn URL '%s' — skipping.", url)
         return None
 
-    description_raw = item.get("description") or item.get("descriptionText") or ""
+    # Actor returns plain text in "descriptionText"; "description" kept as fallback
+    description_raw = item.get("descriptionText") or item.get("description") or ""
     snippet = description_raw[:500]
 
     return JobDict(
-        id=f"linkedin:{job_id}",
+        id=f"linkedin:{raw_id}",
         title=title,
         company=company,
         url=url,
