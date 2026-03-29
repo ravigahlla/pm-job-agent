@@ -25,6 +25,9 @@ on:
     - cron: "0 11 * * 1-5"
   workflow_dispatch:  # Allow manual trigger from GitHub UI for testing
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -45,11 +48,10 @@ jobs:
       # If the cache is missing (first run or eviction), the file simply won't
       # exist and all jobs will appear as new — acceptable degraded behaviour.
       - name: Restore seen_jobs cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: private/seen_jobs.json
           key: seen-jobs-v1
-          restore-keys: seen-jobs-v1
 
       # Write gitignored private files from repository secrets.
       - name: Write private config files
@@ -75,11 +77,10 @@ jobs:
           SEEN_JOBS_TTL_DAYS: ${{ secrets.SEEN_JOBS_TTL_DAYS }}
         run: pm-job-agent run
 
-      # Save the updated seen_jobs.json so tomorrow's run knows what was seen today.
-      # This step runs even if the pipeline step fails — the cache should always
-      # reflect the latest known state.
+      # Save seen_jobs.json only if the file exists (it won't on a failed first run).
+      # Runs even when the pipeline step fails so partial progress is preserved.
       - name: Save seen_jobs cache
-        if: always()
+        if: always() && hashFiles('private/seen_jobs.json') != ''
         uses: actions/cache/save@v4
         with:
           path: private/seen_jobs.json
