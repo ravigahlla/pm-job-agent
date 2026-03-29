@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None
     google_api_key: Optional[SecretStr] = None
+    apify_api_token: Optional[SecretStr] = None
 
     default_llm_provider: str = Field(
         default="stub",

@@ -1,8 +1,14 @@
 """Job discovery from external sources.
 
-Flow: load SearchProfile → query each configured Greenhouse board → deduplicate → return jobs.
-If no board tokens are configured (or the profile file is missing), returns an empty list
-without raising — the rest of the pipeline continues normally.
+Flow: load SearchProfile → query each configured source → deduplicate → return jobs.
+
+Sources:
+  - Greenhouse: queried if greenhouse_board_tokens is non-empty (no API key required)
+  - LinkedIn:   queried if linkedin_search_queries is non-empty AND APIFY_API_TOKEN is set
+
+Both sources produce JobDicts and share the same deduplication dict keyed by job ID.
+If a source is unconfigured or fails, it is skipped — the run continues with whatever
+jobs other sources returned.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from pm_job_agent.config.search_profile import load_search_profile
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.graphs.state import CoreLoopState
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
+from pm_job_agent.integrations.linkedin import LinkedInClient, LinkedInError
 from pm_job_agent.services.types import JobDict
 
 logger = logging.getLogger(__name__)
@@ -23,27 +30,53 @@ def discover_jobs(_: CoreLoopState) -> dict:
     settings = get_settings()
     profile = load_search_profile(settings.search_profile_path)
 
+    seen: dict[str, bool] = {}
+    jobs: list[JobDict] = []
+
+    # --- Greenhouse ---
     if not profile.greenhouse_board_tokens:
         logger.info(
             "No greenhouse_board_tokens configured in %s — skipping Greenhouse.",
             settings.search_profile_path,
         )
-        return {"jobs": []}
+    else:
+        gh_client = GreenhouseClient()
+        for token in profile.greenhouse_board_tokens:
+            try:
+                fetched = gh_client.fetch_jobs(token, profile.target_titles)
+                for job in fetched:
+                    if job["id"] not in seen:
+                        seen[job["id"]] = True
+                        jobs.append(job)
+                logger.info("Greenhouse '%s': %d matching jobs.", token, len(fetched))
+            except GreenhouseError as exc:
+                # Log and continue — one bad board should not kill the whole run.
+                logger.warning("Greenhouse board '%s' failed: %s", token, exc)
 
-    client = GreenhouseClient()
-    seen: dict[str, bool] = {}
-    jobs: list[JobDict] = []
-
-    for token in profile.greenhouse_board_tokens:
-        try:
-            fetched = client.fetch_jobs(token, profile.target_titles)
-            for job in fetched:
-                if job["id"] not in seen:
-                    seen[job["id"]] = True
-                    jobs.append(job)
-            logger.info("Greenhouse '%s': %d matching jobs.", token, len(fetched))
-        except GreenhouseError as exc:
-            # Log and continue — one bad board should not kill the whole run.
-            logger.warning("Greenhouse board '%s' failed: %s", token, exc)
+    # --- LinkedIn (via Apify) ---
+    if not profile.linkedin_search_queries:
+        logger.info(
+            "No linkedin_search_queries configured in %s — skipping LinkedIn.",
+            settings.search_profile_path,
+        )
+    elif not settings.apify_api_token:
+        logger.info(
+            "APIFY_API_TOKEN is not set — skipping LinkedIn. "
+            "Add it to .env to enable LinkedIn discovery."
+        )
+    else:
+        li_client = LinkedInClient(
+            api_token=settings.apify_api_token.get_secret_value()
+        )
+        for query in profile.linkedin_search_queries:
+            try:
+                fetched = li_client.fetch_jobs(query, profile.target_titles)
+                for job in fetched:
+                    if job["id"] not in seen:
+                        seen[job["id"]] = True
+                        jobs.append(job)
+            except LinkedInError as exc:
+                # Log and continue — one bad query should not kill the whole run.
+                logger.warning("LinkedIn query '%s' failed: %s", query, exc)
 
     return {"jobs": jobs}
