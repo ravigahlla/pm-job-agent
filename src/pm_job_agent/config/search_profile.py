@@ -29,6 +29,11 @@ class SearchProfile:
     #   https://boards.greenhouse.io/<token>/
     greenhouse_board_tokens: list[str] = field(default_factory=list)
 
+    # LinkedIn search queries for the Apify integration. Each string is sent as a keyword
+    # search to LinkedIn Jobs (via the automation-lab/linkedin-jobs-scraper Actor). Leave
+    # empty to skip LinkedIn entirely. Requires APIFY_API_TOKEN to be set in .env.
+    linkedin_search_queries: list[str] = field(default_factory=list)
+
 
 def load_search_profile(path: Path) -> SearchProfile:
     """Load a SearchProfile from a YAML file. Missing file returns an empty profile (no crash)."""
@@ -50,4 +55,5 @@ def load_search_profile(path: Path) -> SearchProfile:
         include_keywords=raw.get("include_keywords") or [],
         exclude_keywords=raw.get("exclude_keywords") or [],
         greenhouse_board_tokens=raw.get("greenhouse_board_tokens") or [],
+        linkedin_search_queries=raw.get("linkedin_search_queries") or [],
     )

@@ -27,6 +27,8 @@ def test_core_loop_with_stub_llm(
     assert "[stub-llm]" in result["digest"]
     assert result.get("ranked_jobs") == []
     assert "output_path" in result
+    # Generation is no longer part of the core loop
+    assert "documents" not in result
 
 
 def test_score_jobs_no_keywords_scores_zero(
@@ -35,7 +37,6 @@ def test_score_jobs_no_keywords_scores_zero(
     """With an empty search profile (no keywords), every job scores 0.0."""
     from pm_job_agent.agents.scoring import score_jobs
 
-    # Point settings at a non-existent profile so load_search_profile returns empty SearchProfile.
     monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
     get_settings.cache_clear()
 

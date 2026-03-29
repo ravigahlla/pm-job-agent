@@ -1,22 +1,22 @@
-"""Generate tailored resume notes and cover letter openings for qualifying jobs.
+"""Generate tailored resume notes and cover letter openings for specific jobs.
 
-For each ranked job at or above MIN_SCORE_FOR_GENERATION, two LLM calls are made:
+Called on demand via `pm-job-agent generate <csv>` — not part of the core loop.
+Two LLM calls are made per job:
   1. resume_note   — 3–4 bullet points on what to emphasise/reframe in a tailored resume
   2. cover_letter  — opening paragraph (3–4 sentences) for a cover letter
 
-Both outputs are run through redact_pii() before being stored in state, so contact
-details from agent-context.md never reach the output files even if the LLM reproduces them.
+Both outputs are run through redact_pii() before being stored, so contact
+details from agent-context.md never reach the output files even if the LLM
+reproduces them.
 """
 
 from __future__ import annotations
 
 import logging
 
-from pm_job_agent.config.settings import get_settings
-from pm_job_agent.graphs.state import CoreLoopState
 from pm_job_agent.models.llm import LLMClient
 from pm_job_agent.services.redaction import redact_pii
-from pm_job_agent.services.types import DocumentDict
+from pm_job_agent.services.types import DocumentDict, RankedJobDict
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +58,21 @@ def _cover_prompt(job: dict, context_excerpt: str) -> str:
     )
 
 
-def generate_documents(state: CoreLoopState, *, llm: LLMClient) -> dict:
-    """Generate resume notes and cover letters for jobs above the score threshold."""
-    settings = get_settings()
-    threshold = settings.min_score_for_generation
-    context = state.get("agent_context") or ""
+def generate_for_jobs(
+    jobs: list[RankedJobDict],
+    context: str,
+    llm: LLMClient,
+) -> list[DocumentDict]:
+    """Generate resume notes and cover letters for the given jobs.
+
+    Called directly by the generate command with a pre-filtered list of jobs
+    (those the user has flagged for application). No threshold logic here —
+    the caller decides which jobs to pass in.
+    """
     context_excerpt = context[:_CONTEXT_MAX_CHARS]
-    ranked = state.get("ranked_jobs") or []
-
-    qualifying = [j for j in ranked if j.get("score", 0.0) >= threshold]
-    logger.info(
-        "%d / %d job(s) meet score threshold %.2f for document generation",
-        len(qualifying),
-        len(ranked),
-        threshold,
-    )
-
     documents: list[DocumentDict] = []
-    for job in qualifying:
+
+    for job in jobs:
         raw_resume = llm.generate(_resume_prompt(job, context_excerpt), system_prompt=_RESUME_SYSTEM)
         raw_cover = llm.generate(_cover_prompt(job, context_excerpt), system_prompt=_COVER_SYSTEM)
         documents.append(
@@ -87,12 +84,5 @@ def generate_documents(state: CoreLoopState, *, llm: LLMClient) -> dict:
         )
         logger.debug("Generated documents for job %s (%s)", job["id"], job["title"])
 
-    return {"documents": documents}
-
-
-def make_generation_node(llm: LLMClient):
-    """Return a LangGraph-compatible node function with the LLM client closed over."""
-    def _node(state: CoreLoopState) -> dict:
-        return generate_documents(state, llm=llm)
-
-    return _node
+    logger.info("Generated documents for %d job(s)", len(documents))
+    return documents

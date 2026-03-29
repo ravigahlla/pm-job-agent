@@ -35,18 +35,11 @@ class Settings(BaseSettings):
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None
     google_api_key: Optional[SecretStr] = None
+    apify_api_token: Optional[SecretStr] = None
 
     default_llm_provider: str = Field(
         default="stub",
         description="stub | anthropic | openai | gemini | ollama",
-    )
-
-    min_score_for_generation: float = Field(
-        default=0.3,
-        description=(
-            "Jobs scoring at or above this threshold trigger resume note + cover letter generation. "
-            "Range 0.0–1.0. Lower = more documents generated per run; higher = only strong matches."
-        ),
     )
 
     # Model names — override via env vars (e.g. ANTHROPIC_MODEL=claude-opus-4-5) without code changes.

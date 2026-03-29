@@ -44,6 +44,33 @@ class TestWriteCsv:
         assert rows[0]["score"] == "0.6"
         assert rows[0]["location"] == "Remote"
 
+    def test_flagged_column_is_empty_on_initial_write(self, tmp_path: Path) -> None:
+        path = tmp_path / "out.csv"
+        _write_csv(path, [_make_job()])
+
+        with path.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+
+        assert rows[0]["flagged"] == ""
+
+    def test_flagged_column_present_in_header(self, tmp_path: Path) -> None:
+        path = tmp_path / "out.csv"
+        _write_csv(path, [])
+
+        with path.open(encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            assert "flagged" in reader.fieldnames
+
+    def test_resume_note_and_cover_letter_empty_on_initial_write(self, tmp_path: Path) -> None:
+        path = tmp_path / "out.csv"
+        _write_csv(path, [_make_job()])
+
+        with path.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+
+        assert rows[0]["resume_note"] == ""
+        assert rows[0]["cover_letter"] == ""
+
     def test_empty_jobs_writes_header_only(self, tmp_path: Path) -> None:
         path = tmp_path / "out.csv"
         _write_csv(path, [])
