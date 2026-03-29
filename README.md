@@ -4,12 +4,12 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** A two-step workflow:
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, and writes a timestamped CSV to `outputs/`. Document generation does **not** happen automatically.
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, writes a timestamped CSV to `outputs/`, and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
 2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
 
-**Not in code yet:** Google Sheets sync, Slack channel ingestion, Slack notifications.
+**Not in code yet:** Google Sheets sync, Slack channel ingestion, Slack notifications, deduplication across runs.
 
 ## Architecture
 
@@ -26,6 +26,7 @@ flowchart TB
     rank[Score_each_role_vs_you]
     digest[LLM_digest]
     persist[Write_CSV_flagged_col_empty]
+    notifyEmail["Notify_email_digest_if_configured"]
   end
 
   subgraph review [You_review]
@@ -44,7 +45,8 @@ flowchart TB
   gather --> rank
   rank --> digest
   digest --> persist
-  persist --> openCSV
+  persist --> notifyEmail
+  notifyEmail --> openCSV
   openCSV --> readFlagged
   readFlagged --> genDocs
   genDocs --> writeBack
@@ -124,9 +126,24 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
    Without this key, LinkedIn discovery is silently skipped and Greenhouse runs normally.
 
-4. **Career context** — add or edit `private/agent-context.md` (gitignored). Set `AGENT_CONTEXT_PATH` in `.env` if you want a different path.
+4. **Email digest (optional)** — after each run, the pipeline can send a formatted HTML email with the top-N scored jobs and the LLM digest summary. Requires a Gmail App Password (not your account password):
 
-5. **Search profile** — edit `private/search_profile.yaml`:
+   1. Enable 2-Step Verification on your Google account.
+   2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and create an App Password for "Mail".
+   3. Add to `.env`:
+
+   ```
+   GMAIL_SENDER=you@gmail.com
+   GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+   NOTIFY_EMAIL=you@gmail.com
+   NOTIFY_TOP_N=20
+   ```
+
+   Without these keys, the notify step is silently skipped — the run completes normally and only the CSV is written.
+
+5. **Career context** — add or edit `private/agent-context.md` (gitignored). Set `AGENT_CONTEXT_PATH` in `.env` if you want a different path.
+
+6. **Search profile** — edit `private/search_profile.yaml`:
 
    ```yaml
    target_titles:
@@ -159,7 +176,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 pm-job-agent run
 ```
 
-Runs discovery (Greenhouse + LinkedIn) → scoring → digest → CSV. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with a `flagged` column (empty by default).
+Runs discovery (Greenhouse + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with a `flagged` column (empty by default). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
 
 ```bash
 pm-job-agent run --json   # print full graph state as JSON (includes agent_context — treat as sensitive)
@@ -190,7 +207,7 @@ Inside `src/pm_job_agent/`:
 | Path | Role |
 |------|------|
 | `config/` | `Settings` from `.env`; `SearchProfile` loaded from `private/search_profile.yaml` |
-| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `digest`, `persist`, `generation` |
+| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `digest`, `persist`, `notify`, `generation` |
 | `graphs/` | LangGraph compile (`build_core_loop_graph`) |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
