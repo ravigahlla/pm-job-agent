@@ -9,7 +9,7 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
 
-**Not in code yet:** Google Sheets sync, Slack channel ingestion, Slack notifications, deduplication across runs.
+**Not in code yet:** Google Sheets sync, Slack channel ingestion, Slack notifications, additional job sources (YCombinator, TrueUp, Indeed), predictive company intelligence (funding signals → proactive outreach).
 
 ## Architecture
 
@@ -24,9 +24,10 @@ flowchart TB
     loadBg[Load_background_into_state]
     gather[Discover_jobs_Greenhouse_LinkedIn]
     rank[Score_each_role_vs_you]
+    dedup[Deduplicate_vs_seen_jobs]
     digest[LLM_digest]
-    persist[Write_CSV_flagged_col_empty]
-    notifyEmail["Notify_email_digest_if_configured"]
+    persist[Write_CSV_new_col_update_seen_jobs]
+    notifyEmail["Email_new_roles_only"]
   end
 
   subgraph review [You_review]
@@ -43,7 +44,8 @@ flowchart TB
   writeEnv --> loadBg
   loadBg --> gather
   gather --> rank
-  rank --> digest
+  rank --> dedup
+  dedup --> digest
   digest --> persist
   persist --> notifyEmail
   notifyEmail --> openCSV
@@ -207,12 +209,32 @@ Inside `src/pm_job_agent/`:
 | Path | Role |
 |------|------|
 | `config/` | `Settings` from `.env`; `SearchProfile` loaded from `private/search_profile.yaml` |
-| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `digest`, `persist`, `notify`, `generation` |
+| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `deduplicate`, `digest`, `persist`, `notify`, `generation` |
 | `graphs/` | LangGraph compile (`build_core_loop_graph`) |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
 | `integrations/` | `greenhouse.py`: Greenhouse board client. `linkedin.py`: LinkedIn via Apify Actor |
 | `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
+
+## Automated daily runs
+
+The pipeline runs automatically on weekday mornings via GitHub Actions (`.github/workflows/daily_run.yml`). The cron fires at a time chosen to avoid Anthropic peak-demand windows.
+
+**Repository secrets required** (Settings → Secrets and variables → Actions):
+
+| Secret | What it holds |
+|--------|---------------|
+| `AGENT_CONTEXT_MD` | Contents of `private/agent-context.md` |
+| `SEARCH_PROFILE_YAML` | Contents of `private/search_profile.yaml` |
+| `ANTHROPIC_API_KEY` | LLM provider key |
+| `APIFY_API_TOKEN` | LinkedIn scraping |
+| `GMAIL_APP_PASSWORD` | Gmail app password for digest email |
+| `GMAIL_SENDER` | Sender address |
+| `NOTIFY_EMAIL` | Recipient address |
+
+`private/seen_jobs.json` is persisted between runs via `actions/cache` keyed on the day's date. This is what prevents the same jobs from appearing in the digest every day.
+
+To trigger a manual run: Actions tab → `Daily PM Job Agent Run` → `Run workflow`.
 
 ## Tests
 
