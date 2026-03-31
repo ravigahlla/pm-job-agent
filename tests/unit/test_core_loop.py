@@ -34,8 +34,10 @@ def test_core_loop_with_stub_llm(
 def test_score_jobs_no_keywords_scores_zero(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """With an empty search profile (no keywords), every job scores 0.0."""
-    from pm_job_agent.agents.scoring import score_jobs
+    """With an empty search profile (no keywords), StubLLM response is unparseable
+    and the keyword fallback score is 0.0 (no include keywords match)."""
+    from pm_job_agent.agents.scoring import make_score_node
+    from pm_job_agent.models.llm import StubLLM
 
     monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
     get_settings.cache_clear()
@@ -48,7 +50,8 @@ def test_score_jobs_no_keywords_scores_zero(
         "source": "test",
         "description_snippet": "",
     }
-    out = score_jobs({"jobs": [job]})
+    node = make_score_node(StubLLM())
+    out = node({"jobs": [job], "agent_context": ""})
     assert len(out["ranked_jobs"]) == 1
     assert out["ranked_jobs"][0]["score"] == 0.0
 

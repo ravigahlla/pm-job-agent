@@ -4,7 +4,7 @@ This is the persist node in the core loop. It always writes a file — even when
 ranked_jobs is empty — so every run produces a record on disk.
 
 Column order is optimised for reviewing in a spreadsheet:
-  score, flagged, new, title, company, location, url, source, id,
+  score, score_rationale, flagged, new, title, company, location, url, source, id,
   description_snippet, resume_note, cover_letter
 
 The `flagged` column is empty after a run. Set it to "yes" for roles you want
@@ -29,8 +29,8 @@ from pm_job_agent.services.seen_jobs import add_job_ids, load_seen, save_seen
 logger = logging.getLogger(__name__)
 
 _COLUMNS = [
-    "score", "flagged", "new", "title", "company", "location", "url", "source", "id",
-    "description_snippet", "resume_note", "cover_letter",
+    "score", "score_rationale", "flagged", "new", "title", "company", "location", "url",
+    "source", "id", "description_snippet", "resume_note", "cover_letter",
 ]
 
 

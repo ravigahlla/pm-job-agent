@@ -19,8 +19,14 @@ class JobDict(_JobDictBase, total=False):
     location: str
 
 
-class RankedJobDict(JobDict):
-    score: float
+class _RankedJobDictBase(JobDict):
+    score: float  # always present; required
+
+
+class RankedJobDict(_RankedJobDictBase, total=False):
+    # Human-readable 1-2 sentence explanation from the LLM.
+    # Empty when keyword pre-filter disqualified the job before LLM scoring.
+    score_rationale: str
 
 
 class DocumentDict(TypedDict):

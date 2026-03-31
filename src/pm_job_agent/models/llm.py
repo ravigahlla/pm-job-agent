@@ -47,6 +47,53 @@ def _require_key(secret: Any, env_var: str, provider: str) -> str:
     return value
 
 
+def _build_client(provider: str, model_override: str, settings: Any) -> LLMClient:
+    """Instantiate an LLMClient for the given provider.
+
+    `model_override` is used when non-empty, otherwise the provider's configured
+    default model from settings is used. This is the single place that maps provider
+    name → SDK class, so both get_llm_client() and get_scoring_llm_client() stay in sync.
+    """
+    if provider == "stub":
+        return StubLLM()
+
+    if provider == "anthropic":
+        cls = _import_provider(
+            "pm_job_agent.models.providers.anthropic", "AnthropicLLM", "anthropic"
+        )
+        key = _require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY", "anthropic")
+        model = model_override or settings.anthropic_model
+        return cls(api_key=key, model=model)
+
+    if provider == "openai":
+        cls = _import_provider(
+            "pm_job_agent.models.providers.openai", "OpenAILLM", "openai"
+        )
+        key = _require_key(settings.openai_api_key, "OPENAI_API_KEY", "openai")
+        model = model_override or settings.openai_model
+        return cls(api_key=key, model=model)
+
+    if provider == "gemini":
+        cls = _import_provider(
+            "pm_job_agent.models.providers.gemini", "GeminiLLM", "gemini"
+        )
+        key = _require_key(settings.google_api_key, "GOOGLE_API_KEY", "gemini")
+        model = model_override or settings.gemini_model
+        return cls(api_key=key, model=model)
+
+    if provider == "ollama":
+        cls = _import_provider(
+            "pm_job_agent.models.providers.ollama", "OllamaLLM", "ollama"
+        )
+        model = model_override or settings.ollama_model
+        return cls(model=model, host=settings.ollama_base_url)
+
+    raise ValueError(
+        f"Unknown LLM provider {provider!r}. "
+        "Set DEFAULT_LLM_PROVIDER to: stub | anthropic | openai | gemini | ollama"
+    )
+
+
 def get_llm_client() -> LLMClient:
     """Resolve and return the configured LLM client.
 
@@ -57,39 +104,20 @@ def get_llm_client() -> LLMClient:
 
     settings = get_settings()
     provider = (settings.default_llm_provider or "stub").lower()
+    return _build_client(provider, model_override="", settings=settings)
 
-    if provider == "stub":
-        return StubLLM()
 
-    if provider == "anthropic":
-        cls = _import_provider(
-            "pm_job_agent.models.providers.anthropic", "AnthropicLLM", "anthropic"
-        )
-        key = _require_key(settings.anthropic_api_key, "ANTHROPIC_API_KEY", "anthropic")
-        return cls(api_key=key, model=settings.anthropic_model)
+def get_scoring_llm_client() -> LLMClient:
+    """Resolve and return the LLM client used for job scoring.
 
-    if provider == "openai":
-        cls = _import_provider(
-            "pm_job_agent.models.providers.openai", "OpenAILLM", "openai"
-        )
-        key = _require_key(settings.openai_api_key, "OPENAI_API_KEY", "openai")
-        return cls(api_key=key, model=settings.openai_model)
+    Uses SCORING_LLM_PROVIDER and SCORING_MODEL when set; otherwise inherits
+    DEFAULT_LLM_PROVIDER and the provider's configured default model. This lets
+    scoring use a cheap model (Haiku, GPT-4o-mini) while generation uses a
+    higher-quality one — controlled entirely via .env without code changes.
+    """
+    from pm_job_agent.config.settings import get_settings
 
-    if provider == "gemini":
-        cls = _import_provider(
-            "pm_job_agent.models.providers.gemini", "GeminiLLM", "gemini"
-        )
-        key = _require_key(settings.google_api_key, "GOOGLE_API_KEY", "gemini")
-        return cls(api_key=key, model=settings.gemini_model)
-
-    if provider == "ollama":
-        cls = _import_provider(
-            "pm_job_agent.models.providers.ollama", "OllamaLLM", "ollama"
-        )
-        # Ollama is local — no API key, but the server must be running at ollama_base_url.
-        return cls(model=settings.ollama_model, host=settings.ollama_base_url)
-
-    raise ValueError(
-        f"Unknown LLM provider {provider!r}. "
-        "Set DEFAULT_LLM_PROVIDER to: stub | anthropic | openai | gemini | ollama"
-    )
+    settings = get_settings()
+    provider = (settings.scoring_llm_provider or settings.default_llm_provider or "stub").lower()
+    model_override = settings.scoring_model or ""
+    return _build_client(provider, model_override=model_override, settings=settings)

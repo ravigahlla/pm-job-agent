@@ -1,4 +1,4 @@
-"""Tests for the Greenhouse integration client and keyword-based scoring."""
+"""Tests for the Greenhouse integration client and scoring helper functions."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pm_job_agent.agents.scoring import _score_job
+from pm_job_agent.agents.scoring import _keyword_score, _passes_pre_filter
 from pm_job_agent.config.search_profile import SearchProfile, load_search_profile
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
 
@@ -162,7 +162,7 @@ greenhouse_board_tokens:
 
 
 # ---------------------------------------------------------------------------
-# Keyword scoring
+# Keyword scoring helpers (used as pre-filter and LLM fallback)
 # ---------------------------------------------------------------------------
 
 class TestScoreJob:
@@ -178,88 +178,65 @@ class TestScoreJob:
 
     def test_no_keywords_scores_zero(self) -> None:
         profile = SearchProfile()
-        assert _score_job(self._job(), profile) == 0.0
+        assert _keyword_score(self._job(), profile) == 0.0
 
     def test_include_keyword_in_title_boosts_score(self) -> None:
         profile = SearchProfile(include_keywords=["AI"])
-        score = _score_job(self._job(title="AI Product Manager"), profile)
+        score = _keyword_score(self._job(title="AI Product Manager"), profile)
         assert score == pytest.approx(0.2)
 
     def test_include_keyword_in_description_boosts_score(self) -> None:
         profile = SearchProfile(include_keywords=["LLM"])
-        score = _score_job(self._job(snippet="Owns LLM roadmap"), profile)
+        score = _keyword_score(self._job(snippet="Owns LLM roadmap"), profile)
         assert score == pytest.approx(0.2)
 
     def test_multiple_keywords_accumulate(self) -> None:
         profile = SearchProfile(include_keywords=["AI", "SaaS", "platform"])
-        score = _score_job(self._job(title="AI Product Manager", snippet="SaaS platform"), profile)
+        score = _keyword_score(
+            self._job(title="AI Product Manager", snippet="SaaS platform"), profile
+        )
         assert score == pytest.approx(0.6)
 
     def test_score_capped_at_one(self) -> None:
         profile = SearchProfile(include_keywords=["a", "b", "c", "d", "e", "f"])
-        score = _score_job(self._job(title="a b c d e f"), profile)
+        score = _keyword_score(self._job(title="a b c d e f"), profile)
         assert score == pytest.approx(1.0)
 
-    def test_exclude_keyword_zeroes_score(self) -> None:
+    def test_exclude_keyword_disqualifies_via_pre_filter(self) -> None:
         profile = SearchProfile(
             include_keywords=["AI", "SaaS"],
             exclude_keywords=["Intern"],
         )
-        score = _score_job(self._job(title="AI Product Manager Intern"), profile)
-        assert score == 0.0
+        passes, _ = _passes_pre_filter(self._job(title="AI Product Manager Intern"), profile)
+        assert not passes
 
     def test_exclude_keyword_case_insensitive(self) -> None:
         profile = SearchProfile(exclude_keywords=["intern"])
-        score = _score_job(self._job(title="Product Intern"), profile)
-        assert score == 0.0
+        passes, _ = _passes_pre_filter(self._job(title="Product Intern"), profile)
+        assert not passes
 
     def test_include_keyword_case_insensitive(self) -> None:
         profile = SearchProfile(include_keywords=["saas"])
-        score = _score_job(self._job(snippet="Built a SaaS product"), profile)
+        score = _keyword_score(self._job(snippet="Built a SaaS product"), profile)
         assert score == pytest.approx(0.2)
 
-    # --- location filtering ---
+    # --- location handling (v2: location is passed to LLM, not used as a hard filter) ---
 
-    def test_matching_location_does_not_affect_score(self) -> None:
-        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
-        score = _score_job(self._job(title="AI PM"), profile)
-        # No location on the base job — passes through unchanged
-        assert score == pytest.approx(0.2)
-
-    def test_job_location_matches_configured_location(self) -> None:
-        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
-        job = {**self._job(title="AI PM"), "location": "Remote"}
-        assert _score_job(job, profile) == pytest.approx(0.2)
-
-    def test_job_location_substring_match(self) -> None:
-        """'San Francisco' should match 'San Francisco, CA'."""
-        profile = SearchProfile(locations=["San Francisco"])
-        job = {**self._job(), "location": "San Francisco, CA"}
-        assert _score_job(job, profile) == pytest.approx(0.0)  # no include kws, but not disqualified
-
-    def test_job_location_no_match_zeroes_score(self) -> None:
+    def test_location_mismatch_does_not_disqualify_via_pre_filter(self) -> None:
+        """Location is no longer a hard filter — the LLM handles location holistically."""
         profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
         job = {**self._job(title="AI PM"), "location": "New York, NY"}
-        assert _score_job(job, profile) == 0.0
+        passes, reason = _passes_pre_filter(job, profile)
+        assert passes, f"Expected job to pass pre-filter; got: {reason}"
 
-    def test_empty_locations_skips_location_filter(self) -> None:
-        """locations = [] means no location filtering — existing behaviour preserved."""
-        profile = SearchProfile(include_keywords=["AI"], locations=[])
-        job = {**self._job(title="AI PM"), "location": "New York, NY"}
-        assert _score_job(job, profile) == pytest.approx(0.2)
-
-    def test_blank_job_location_not_disqualified(self) -> None:
-        """A job with no location field passes through even if locations are configured."""
+    def test_blank_job_location_passes_pre_filter(self) -> None:
         profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
         job = {**self._job(title="AI PM"), "location": ""}
-        assert _score_job(job, profile) == pytest.approx(0.2)
+        passes, _ = _passes_pre_filter(job, profile)
+        assert passes
 
-    def test_location_filter_case_insensitive(self) -> None:
-        profile = SearchProfile(locations=["remote"])
-        job = {**self._job(), "location": "Remote"}
-        # Matches — score is 0.0 only because no include keywords, not because of location
-        assert _score_job(job, profile) == pytest.approx(0.0)
-        # Now confirm it would NOT be 0 from location disqualification:
-        profile_with_kw = SearchProfile(include_keywords=["PM"], locations=["remote"])
-        job2 = {**self._job(title="Senior PM"), "location": "Remote"}
-        assert _score_job(job2, profile_with_kw) == pytest.approx(0.2)
+    def test_keyword_score_ignores_location(self) -> None:
+        """_keyword_score only cares about include keywords, never location."""
+        profile = SearchProfile(include_keywords=["AI"], locations=["Remote"])
+        job = {**self._job(title="AI PM"), "location": "Tokyo"}
+        assert _keyword_score(job, profile) == pytest.approx(0.2)

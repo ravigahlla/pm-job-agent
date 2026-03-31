@@ -66,6 +66,19 @@ class Settings(BaseSettings):
         description="stub | anthropic | openai | gemini | ollama",
     )
 
+    # Scoring uses a separate (typically cheaper) provider/model to keep generation quality
+    # decoupled from scoring cost. Empty string means fall back to default_llm_provider.
+    scoring_llm_provider: str = Field(
+        default="",
+        description="Provider for scoring calls. Falls back to default_llm_provider when empty.",
+    )
+    # When set, overrides the provider's default model for scoring calls only.
+    # Example: set to claude-haiku-4-5-20251001 while generation uses claude-sonnet-4-20250514.
+    scoring_model: str = Field(
+        default="",
+        description="Model for scoring calls. Falls back to the provider's configured model when empty.",
+    )
+
     # Model names — override via env vars (e.g. ANTHROPIC_MODEL=claude-opus-4-5) without code changes.
     # Anthropic models: claude-haiku-4-5-20251001, claude-sonnet-4-20250514, claude-opus-4-20250514
     anthropic_model: str = "claude-haiku-4-5-20251001"
