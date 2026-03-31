@@ -2,6 +2,25 @@
 
 Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
 
+## Contents
+
+- [Architecture](#architecture)
+- [Setup](#setup)
+  - [Virtual environment](#virtual-environment-recommended)
+  - [Bootstrap script](#bootstrap-script-macos--linux--wsl)
+  - [After git clone](#after-git-clone-or-git-pull-on-a-new-machine)
+  - [Configuration](#configuration)
+- [Usage](#usage)
+  - [Run the pipeline](#run-the-pipeline)
+  - [Generate documents for flagged roles](#generate-documents-for-flagged-roles)
+- [Layout](#layout)
+- [Automated daily runs](#automated-daily-runs)
+- [Tests](#tests)
+- [Docker](#docker)
+- [Roadmap](#roadmap)
+
+---
+
 **What runs today:** A two-step workflow:
 
 1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
