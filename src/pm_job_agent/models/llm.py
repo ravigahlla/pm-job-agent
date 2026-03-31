@@ -107,6 +107,17 @@ def get_llm_client() -> LLMClient:
     return _build_client(provider, model_override="", settings=settings)
 
 
+def get_llm_client_for_provider(provider: str) -> LLMClient:
+    """Construct a client for the named provider, using settings for all other config.
+
+    Intended for CLI --provider overrides so callers don't need to touch .env.
+    Raises ValueError for unknown provider names (same error as _build_client).
+    """
+    from pm_job_agent.config.settings import get_settings
+
+    return _build_client(provider.lower(), model_override="", settings=get_settings())
+
+
 def get_scoring_llm_client() -> LLMClient:
     """Resolve and return the LLM client used for job scoring.
 

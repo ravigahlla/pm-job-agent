@@ -23,7 +23,7 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** A two-step workflow:
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
 2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
@@ -241,6 +241,20 @@ pm-job-agent generate outputs/run_YYYYMMDD_HHMMSS.csv
 ```
 
 Reads every `flagged = yes` row, calls the LLM for a tailored resume note and cover letter opening for each, and writes the results back into the same CSV. Unflagged rows are untouched.
+
+### Local development (no API keys required)
+
+Use the `--provider` flag to override the LLM provider for a single command without editing `.env`. This is the recommended workflow for local testing:
+
+```bash
+ollama pull llama3.2          # one-time model download (~2 GB); skip if already pulled
+pm-job-agent run --provider ollama
+pm-job-agent generate outputs/run_*.csv --provider ollama
+```
+
+Requires [Ollama](https://ollama.com) installed and running (`ollama serve`). `llama3.2` produces reliable structured JSON output and is the recommended model for scoring. All other settings (search profile, output directory, Google Sheets, email digest) are unaffected by `--provider`.
+
+`--provider` accepts any configured provider: `stub | anthropic | openai | gemini | ollama`. `stub` is useful for smoke-testing the pipeline shape without any LLM calls.
 
 ## Layout
 

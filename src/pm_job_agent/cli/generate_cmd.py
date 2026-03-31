@@ -16,11 +16,12 @@ import csv
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 from pm_job_agent.agents.generation import generate_for_jobs
 from pm_job_agent.agents.persist import _COLUMNS
 from pm_job_agent.config.settings import get_settings
-from pm_job_agent.models.llm import get_llm_client
+from pm_job_agent.models.llm import LLMClient, get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,12 @@ def _reconstruct_job(row: dict) -> dict:
     }
 
 
-def run_generate(csv_path: Path) -> None:
-    """Read a run CSV, generate documents for flagged rows, update the file in-place."""
+def run_generate(csv_path: Path, llm: Optional[LLMClient] = None) -> None:
+    """Read a run CSV, generate documents for flagged rows, update the file in-place.
+
+    `llm` can be passed directly (e.g. from --provider CLI flag) to override the
+    provider configured in .env. When None, falls back to DEFAULT_LLM_PROVIDER.
+    """
     if not csv_path.exists():
         print(f"Error: file not found — {csv_path}", file=sys.stderr)
         sys.exit(1)
@@ -70,7 +75,7 @@ def run_generate(csv_path: Path) -> None:
 
     settings = get_settings()
     context = _load_agent_context(settings.agent_context_path)
-    llm = get_llm_client()
+    llm = llm or get_llm_client()
 
     jobs = [_reconstruct_job(r) for r in flagged_rows]
     documents = generate_for_jobs(jobs, context, llm)

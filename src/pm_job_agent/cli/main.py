@@ -3,6 +3,10 @@
 Commands:
   pm-job-agent run              Run the discovery → scoring → digest → CSV pipeline.
   pm-job-agent generate <csv>   Generate documents for flagged rows in a run CSV.
+
+Local development tip: use --provider ollama to run without any API keys.
+  pm-job-agent run --provider ollama
+  pm-job-agent generate <csv> --provider ollama
 """
 
 from __future__ import annotations
@@ -14,9 +18,24 @@ from pathlib import Path
 from pm_job_agent.cli.generate_cmd import run_generate
 from pm_job_agent.graphs import build_core_loop_graph
 
+_PROVIDER_HELP = (
+    "Override the LLM provider for this command: stub | anthropic | openai | gemini | ollama. "
+    "Defaults to DEFAULT_LLM_PROVIDER in .env. "
+    "Use '--provider ollama' for local testing without API keys (requires Ollama running locally)."
+)
+
+
+def _resolve_llm(provider_arg: str | None):
+    """Return an LLMClient if --provider was passed, otherwise None (use .env defaults)."""
+    if not provider_arg:
+        return None
+    from pm_job_agent.models.llm import get_llm_client_for_provider
+    return get_llm_client_for_provider(provider_arg)
+
 
 def _cmd_run(args: argparse.Namespace) -> None:
-    app = build_core_loop_graph()
+    llm = _resolve_llm(args.provider)
+    app = build_core_loop_graph(llm=llm)
     result = app.invoke({})
 
     if args.json:
@@ -42,7 +61,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
 
 def _cmd_generate(args: argparse.Namespace) -> None:
-    run_generate(Path(args.csv))
+    llm = _resolve_llm(args.provider)
+    run_generate(Path(args.csv), llm=llm)
 
 
 def main() -> None:
@@ -63,6 +83,7 @@ def main() -> None:
         action="store_true",
         help="Print final graph state as JSON (includes agent_context; treat as sensitive).",
     )
+    run_parser.add_argument("--provider", metavar="PROVIDER", help=_PROVIDER_HELP)
     run_parser.set_defaults(func=_cmd_run)
 
     # --- generate ---
@@ -75,6 +96,7 @@ def main() -> None:
         metavar="<csv>",
         help="Path to a run CSV produced by `pm-job-agent run`.",
     )
+    gen_parser.add_argument("--provider", metavar="PROVIDER", help=_PROVIDER_HELP)
     gen_parser.set_defaults(func=_cmd_generate)
 
     args = parser.parse_args()
