@@ -108,7 +108,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
 | Path / item | What to do |
 |-------------|------------|
-| `private/` | Not in Git. Two files matter: `agent-context.md` (career context for scoring/generation) and `search_profile.yaml` (keywords, board tokens, LinkedIn queries). Without these, discovery returns zero jobs but the run does not crash. |
+| `private/` | Not in Git. Three files matter: `agent-context.md` (career context for scoring/generation), `search_profile.yaml` (keywords, board tokens, LinkedIn queries), and `scoring_criteria.md` (optional personalised scoring rubric injected into the LLM system prompt). Without `agent-context.md` and `search_profile.yaml`, discovery returns zero jobs but the run does not crash. |
 | `.env` | Not in Git. Run `./scripts/bootstrap.sh` to create from `.env.example`, then fill in real keys. |
 | `.venv/` | Not in Git. Run `./scripts/bootstrap.sh` or `pip install -e ".[dev]"` manually. |
 | `outputs/` | Gitignored. Created automatically on first run. |
@@ -287,6 +287,7 @@ The pipeline runs automatically on weekday mornings via GitHub Actions (`.github
 | Secret | What it holds |
 |--------|---------------|
 | `AGENT_CONTEXT_MD` | Contents of `private/agent-context.md` |
+| `SCORING_CRITERIA_MD` | Contents of `private/scoring_criteria.md` (optional; omit if not using personalised scoring criteria) |
 | `SEARCH_PROFILE_YAML` | Contents of `private/search_profile.yaml` |
 | `ANTHROPIC_API_KEY` | LLM provider key |
 | `APIFY_API_TOKEN` | LinkedIn scraping |
@@ -330,9 +331,9 @@ flowchart LR
 
   p1 --> p2 --> p3 --> p4
 
-  p1 --- s1["Greenhouse + LinkedIn discovery\nKeyword scoring\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
+  p1 --- s1["Greenhouse + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
 
-  p2 --- s2["LLM semantic scoring\nCheap scoring model config\nEval framework\nFix location handling\nMore sources: YC, TrueUp, Indeed\nAuto-verify Greenhouse tokens"]
+  p2 --- s2["More sources: YC, TrueUp, Indeed\nAuto-verify Greenhouse tokens\nEval framework improvements"]
 
   p3 --- s3["Explainability: why a role scored highly\nApplication memory + outcome tracking\nPredictive company intelligence\nFunding signals → proactive outreach"]
 
@@ -341,10 +342,8 @@ flowchart LR
 
 ### Next up — three branches
 
-**`feature/scoring-v2`**
-Current scoring is keyword counting — everything clusters at 0.4 and has no understanding of semantic fit. Replace with LLM-based scoring against `agent-context.md`. Add a `SCORING_LLM_PROVIDER` / `SCORING_MODEL` setting so scoring uses a cheap model (Haiku, GPT-4o-mini) while generation uses a higher-quality one. Fix location handling — stop zeroing out jobs with ambiguous locations and let the LLM assess holistically. Add `scripts/eval_scoring.py` to validate improvement using a fine-tuned LLM as a scoring oracle before merging.
-
-Key decisions: batch all jobs in one LLM call vs. one call per job; whether to keep keyword pre-filter to reduce LLM calls; format of the rationale field.
+**`feature/scoring-v2`** ✓ Shipped
+Replaced keyword scoring with LLM semantic scoring (keyword pre-filter + per-job LLM call against `agent-context.md`). Added `SCORING_LLM_PROVIDER` / `SCORING_MODEL` for model tiering, `SCORING_CRITERIA_PATH` to inject a personalised rubric into the system prompt, `score_rationale` field in CSV and Sheet, `--provider` CLI flag for local Ollama testing, `scripts/eval_scoring.py` for oracle-based quality validation, and `scripts/rescore_sheet.py` to back-fill v2 scores on existing Sheet rows.
 
 **`feature/sourcing-v2`** _(depends on scoring-v2 first)_
 Auto-verify Greenhouse tokens at startup so dead boards fail silently instead of polluting logs. Add Apify-based scrapers for YC Jobs, TrueUp, and/or Indeed. Tighten LinkedIn queries for better signal-to-noise.
@@ -383,7 +382,7 @@ This applies across all phases and should be revisited whenever a new LLM-heavy 
 | Item | Severity | Notes |
 |------|----------|-------|
 | Python 3.9 EOL | Medium | `google-auth` will eventually drop support; warnings on every run |
-| Keyword scoring | High | Addressed in `feature/scoring-v2` |
+| Keyword scoring | High | Fixed — shipped in `feature/scoring-v2` |
 | LLM scoring latency | Medium | 150-200 calls/run at ~0.3s each = ~60s added; batching strategy needed |
 | Greenhouse 404s | Low | Auto-verify in `feature/sourcing-v2` will fix permanently |
 | GitHub Actions cache key | Low | Fixed key `seen-jobs-v1`; consider date-rolling key to prevent unbounded growth |

@@ -12,6 +12,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from pm_job_agent.agents.scoring import (
+    _SCORING_SYSTEM_BASE,
+    _build_scoring_system,
     _keyword_score,
     _parse_llm_response,
     _passes_pre_filter,
@@ -319,3 +321,73 @@ class TestMakeScoreNode(object):
         node = make_score_node(StubLLM())
         result = node({"jobs": [], "agent_context": ""})
         assert result["ranked_jobs"] == []
+
+
+# ---------------------------------------------------------------------------
+# _build_scoring_system — criteria injection
+# ---------------------------------------------------------------------------
+
+class TestBuildScoringSystem:
+    def test_no_criteria_returns_base_prompt(self) -> None:
+        """Empty or whitespace-only criteria return the base prompt unchanged."""
+        assert _build_scoring_system("") is _SCORING_SYSTEM_BASE
+        assert _build_scoring_system("   \n  ") is _SCORING_SYSTEM_BASE
+
+    def test_criteria_appended_to_base_prompt(self) -> None:
+        """Non-empty criteria are appended after a consistent separator."""
+        criteria = "Prefer B2B SaaS roles. Avoid pure sales-engineering titles."
+        result = _build_scoring_system(criteria)
+        assert result.startswith(_SCORING_SYSTEM_BASE)
+        assert "Candidate-specific scoring criteria" in result
+        assert criteria in result
+
+    def test_make_score_node_loads_criteria_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """make_score_node injects criteria into the scoring system prompt when the file exists."""
+        criteria_file = tmp_path / "scoring_criteria.md"
+        criteria_file.write_text("Prefer early-stage startups. Avoid legacy enterprise.", encoding="utf-8")
+
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
+        monkeypatch.setenv("SCORING_CRITERIA_PATH", str(criteria_file))
+        get_settings.cache_clear()
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = json.dumps({"score": 0.9, "rationale": "Great fit."})
+
+        node = make_score_node(mock_llm)
+        node({
+            "agent_context": "",
+            "jobs": [
+                {"id": "j1", "title": "PM", "company": "StartupCo",
+                 "url": "https://x.com", "source": "test", "description_snippet": "AI product"},
+            ],
+        })
+
+        call_kwargs = mock_llm.generate.call_args
+        system_prompt_used = call_kwargs[1].get("system_prompt") or call_kwargs[0][1]
+        assert "Prefer early-stage startups" in system_prompt_used
+
+    def test_make_score_node_absent_criteria_file_uses_base(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """make_score_node silently proceeds with base prompt when criteria file is missing."""
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "no_profile.yaml"))
+        monkeypatch.setenv("SCORING_CRITERIA_PATH", str(tmp_path / "nonexistent_criteria.md"))
+        get_settings.cache_clear()
+
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = json.dumps({"score": 0.5, "rationale": "Decent fit."})
+
+        node = make_score_node(mock_llm)
+        node({
+            "agent_context": "",
+            "jobs": [
+                {"id": "j2", "title": "PM", "company": "BigCo",
+                 "url": "https://x.com", "source": "test", "description_snippet": "PM role"},
+            ],
+        })
+
+        call_kwargs = mock_llm.generate.call_args
+        system_prompt_used = call_kwargs[1].get("system_prompt") or call_kwargs[0][1]
+        assert system_prompt_used == _SCORING_SYSTEM_BASE

@@ -39,7 +39,8 @@ _SCORE_MAX = 1.0
 # Cap context sent to the LLM to keep token usage predictable across runs.
 _CONTEXT_MAX_CHARS = 2000
 
-_SCORING_SYSTEM = (
+# Base system prompt — generic scoring instructions used when no criteria file is configured.
+_SCORING_SYSTEM_BASE = (
     "You are evaluating job fit for a senior product manager candidate. "
     "Return ONLY valid JSON with two keys: "
     '{"score": <float 0.0-1.0>, "rationale": "<1-2 sentences>"}. '
@@ -47,6 +48,23 @@ _SCORING_SYSTEM = (
     "Consider seniority, domain fit, required skills, and location preference holistically. "
     "Do not add any text outside the JSON object."
 )
+
+
+def _build_scoring_system(criteria: str = "") -> str:
+    """Build the full system prompt, optionally appending personalized scoring criteria.
+
+    Criteria are injected into the system prompt (not the user prompt) so that
+    Anthropic prompt caching can apply across all per-job calls in a run —
+    the system prompt is constant for the entire run, so the criteria content
+    costs input tokens only once.
+    """
+    if not criteria.strip():
+        return _SCORING_SYSTEM_BASE
+    return (
+        _SCORING_SYSTEM_BASE
+        + "\n\nCandidate-specific scoring criteria (use these to calibrate your score):\n"
+        + criteria.strip()
+    )
 
 
 def _build_scoring_prompt(job: JobDict, context_excerpt: str) -> str:
@@ -119,6 +137,7 @@ def _llm_score_job(
     profile: SearchProfile,
     llm: LLMClient,
     context_excerpt: str,
+    scoring_system: str = _SCORING_SYSTEM_BASE,
 ) -> tuple[float, str]:
     """Call the LLM and return (score, rationale).
 
@@ -127,7 +146,7 @@ def _llm_score_job(
     """
     prompt = _build_scoring_prompt(job, context_excerpt)
     try:
-        raw = llm.generate(prompt, system_prompt=_SCORING_SYSTEM)
+        raw = llm.generate(prompt, system_prompt=scoring_system)
     except Exception as exc:  # noqa: BLE001
         logger.warning("LLM call failed for job %s (%s): %s", job.get("id"), job.get("title"), exc)
         fallback = _keyword_score(job, profile)
@@ -150,12 +169,13 @@ def _score_single(
     profile: SearchProfile,
     llm: LLMClient,
     context_excerpt: str,
+    scoring_system: str = _SCORING_SYSTEM_BASE,
 ) -> RankedJobDict:
     passes, reason = _passes_pre_filter(job, profile)
     if not passes:
         return {**job, "score": _SCORE_MIN, "score_rationale": reason}
 
-    score, rationale = _llm_score_job(job, profile, llm, context_excerpt)
+    score, rationale = _llm_score_job(job, profile, llm, context_excerpt, scoring_system=scoring_system)
     return {**job, "score": score, "score_rationale": rationale}
 
 
@@ -171,12 +191,22 @@ def make_score_node(llm: LLMClient) -> Callable[[CoreLoopState], dict]:
     settings = get_settings()
     profile = load_search_profile(settings.search_profile_path)
 
+    criteria_text = ""
+    criteria_path = settings.scoring_criteria_path
+    if criteria_path and criteria_path.exists():
+        criteria_text = criteria_path.read_text(encoding="utf-8")
+        logger.info(
+            "Loaded scoring criteria from %s (%d chars).", criteria_path, len(criteria_text)
+        )
+    scoring_system = _build_scoring_system(criteria_text)
+
     def _score_jobs(state: CoreLoopState) -> dict:
         agent_context = state.get("agent_context") or ""
         context_excerpt = agent_context[:_CONTEXT_MAX_CHARS]
         jobs = state.get("jobs") or []
         ranked: list[RankedJobDict] = [
-            _score_single(job, profile, llm, context_excerpt) for job in jobs
+            _score_single(job, profile, llm, context_excerpt, scoring_system=scoring_system)
+            for job in jobs
         ]
         ranked.sort(key=lambda j: j["score"], reverse=True)
 
