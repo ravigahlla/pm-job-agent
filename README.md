@@ -354,6 +354,16 @@ Key decisions: `USER_ENTERED` vs `RAW` for append (risk: job titles containing `
 - **Streamlit UI** — local web app for reviewing, filtering, updating status; most demonstrable as portfolio artifact
 - **Python 3.11+ upgrade** — `google-auth` and `urllib3` both warn on 3.9 (EOL); low risk, removes noise
 
+### LLM cost efficiency (cross-cutting)
+
+This applies across all phases and should be revisited whenever a new LLM-heavy feature is added.
+
+- **Model tiering** — use cheap models (Haiku, GPT-4o-mini, Gemini Flash) for high-volume structured tasks (scoring, classification) and reserve stronger models (Sonnet, GPT-4o) for quality-sensitive generation (resume notes, cover letters, digest). Controlled via `SCORING_LLM_PROVIDER` / `SCORING_MODEL` settings added in `feature/scoring-v2`.
+- **Batching** — where possible, score multiple jobs in a single LLM call rather than one call per job. Reduces latency and token overhead from repeated system prompts. Tradeoff: harder to parse structured output reliably; test carefully.
+- **Prompt caching** — Anthropic and OpenAI both support prompt caching for repeated system prompt content. `agent-context.md` is a prime candidate — it's sent on every scoring call and never changes within a run. Can reduce input token cost by 80%+ on cached content.
+- **Pre-filtering** — keep keyword matching as a fast, free first pass to eliminate obvious non-matches before any LLM call. Only jobs that pass a minimum keyword threshold get LLM-scored. Reduces LLM call volume by ~30-50% with minimal quality loss.
+- **Token budgets** — cap `description_snippet` length before sending to the LLM. The current 500-char snippet is reasonable; don't increase it without measuring cost impact.
+
 ### Tech debt
 
 | Item | Severity | Notes |
