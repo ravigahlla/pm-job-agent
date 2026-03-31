@@ -355,10 +355,16 @@ See entry below.
 **`feature/scoring-v2`** ✓ Shipped Mar 31 2026
 Replaced keyword scoring with LLM semantic scoring (keyword pre-filter + per-job LLM call against `agent-context.md`). Added `SCORING_LLM_PROVIDER` / `SCORING_MODEL` for model tiering, `SCORING_CRITERIA_PATH` to inject a personalised rubric into the system prompt, `score_rationale` field in CSV and Sheet, `--provider` CLI flag for local Ollama testing, `scripts/eval_scoring.py` for oracle-based quality validation, and `scripts/rescore_sheet.py` to back-fill v2 scores on existing Sheet rows.
 
+**Quality validation (Mar 31 2026):** Ran `eval_scoring.py` against today's 191-job run (20-job oracle sample): MAE 0.189, Spearman 0.621. Scoring model is directionally correct and identifies domain/seniority gaps accurately; slight conservative bias (~0.19 below oracle) expected given cheaper scoring model. Pre-filter correctly drops non-AI-adjacent roles. Ran `rescore_sheet.py --write` against all 244 historical Sheet rows: average score rose from 0.139 (keyword noise) to 0.307 (semantic), 87 large changes (>0.30). Notable rescores: `Principal PM, AI @ Webflow` 0.40 → 0.82, `Product Manager, Subscription & Payments @ Webflow` 0.40 → 0.72.
+
 **`feature/sourcing-v2`** _(depends on scoring-v2 first)_
 Auto-verify Greenhouse tokens at startup so dead boards fail silently instead of polluting logs. Add Apify-based scrapers for YC Jobs, TrueUp, and/or Indeed. Tighten LinkedIn queries for better signal-to-noise.
 
 Key decisions: which Apify actors to use (needs research at apify.com/store); per-source job cap config.
+
+Known sourcing quality issues to fix in this branch:
+- **Meta duplicates** — ~20 identical "Product Manager @ Meta" rows in the Sheet from the same scrape; need cross-run deduplication by (company, title) not just job_id
+- **Generic LinkedIn listings** — roles like "Product Manager @ Meta" with no description snippet reach the LLM with insufficient context; explore requiring a minimum description length before LLM scoring
 
 **`feature/sheets-ui`** _(depends on scoring-v2 first)_
 Format `title` as `=HYPERLINK(url, title)` for one-click access. Score as percentage. Document a filter view setup for daily review. Low value until data quality upstream is fixed.
@@ -396,3 +402,5 @@ This applies across all phases and should be revisited whenever a new LLM-heavy 
 | LLM scoring latency | Medium | 150-200 calls/run at ~0.3s each = ~60s added; batching strategy needed |
 | Greenhouse 404s | Low | Auto-verify in `feature/sourcing-v2` will fix permanently |
 | GitHub Actions cache key | Low | Fixed key `seen-jobs-v1`; consider date-rolling key to prevent unbounded growth |
+| gspread `update()` argument order | Low | `rescore_sheet.py` line 163 uses deprecated positional args; change to `update(values=..., range_name=...)` before gspread drops support |
+| Meta/LinkedIn duplicates | Medium | ~20 identical "Product Manager @ Meta" rows from same scrape; dedup by (company, title) needed in `feature/sourcing-v2` |
