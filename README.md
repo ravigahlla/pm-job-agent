@@ -324,7 +324,7 @@ The build context excludes `private/`, `.env`, and virtualenvs via `.dockerignor
 
 ```mermaid
 flowchart LR
-  p1["Phase 1\nCore Loop\n✓ Shipped"]
+  p1["Phase 1\nCore Loop\n✓ Shipped Mar 27–31 2026"]
   p2["Phase 2\nSignal Quality\n← Next"]
   p3["Phase 3\nIntelligence Layer"]
   p4["Phase 4\nScale and Ops"]
@@ -340,9 +340,19 @@ flowchart LR
   p4 --- s4["Slack channel ingestion\nStreamlit local web UI\nPython 3.11+ upgrade\nSheets UI improvements"]
 ```
 
+### Shipped
+
+**Phase 1 — Core Loop** _(Mar 27–30 2026)_
+Scaffold → Greenhouse discovery → keyword scoring → real LLM providers → on-demand document generation → LinkedIn/Apify scraping → cross-run deduplication → email digest → GitHub Actions cron → Google Sheets tracker.
+
+**`feature/scoring-v2`** _(Mar 31 2026)_
+See entry below.
+
+---
+
 ### Next up — three branches
 
-**`feature/scoring-v2`** ✓ Shipped
+**`feature/scoring-v2`** ✓ Shipped Mar 31 2026
 Replaced keyword scoring with LLM semantic scoring (keyword pre-filter + per-job LLM call against `agent-context.md`). Added `SCORING_LLM_PROVIDER` / `SCORING_MODEL` for model tiering, `SCORING_CRITERIA_PATH` to inject a personalised rubric into the system prompt, `score_rationale` field in CSV and Sheet, `--provider` CLI flag for local Ollama testing, `scripts/eval_scoring.py` for oracle-based quality validation, and `scripts/rescore_sheet.py` to back-fill v2 scores on existing Sheet rows.
 
 **`feature/sourcing-v2`** _(depends on scoring-v2 first)_
