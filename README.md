@@ -285,3 +285,62 @@ docker build -t pm-job-agent .
 ```
 
 The build context excludes `private/`, `.env`, and virtualenvs via `.dockerignore`.
+
+## Roadmap
+
+```mermaid
+flowchart LR
+  p1["Phase 1\nCore Loop\n✓ Shipped"]
+  p2["Phase 2\nSignal Quality\n← Next"]
+  p3["Phase 3\nIntelligence Layer"]
+  p4["Phase 4\nScale and Ops"]
+
+  p1 --> p2 --> p3 --> p4
+
+  p1 --- s1["Greenhouse + LinkedIn discovery\nKeyword scoring\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
+
+  p2 --- s2["LLM semantic scoring\nCheap scoring model config\nEval framework\nFix location handling\nMore sources: YC, TrueUp, Indeed\nAuto-verify Greenhouse tokens"]
+
+  p3 --- s3["Explainability: why a role scored highly\nApplication memory + outcome tracking\nPredictive company intelligence\nFunding signals → proactive outreach"]
+
+  p4 --- s4["Slack channel ingestion\nStreamlit local web UI\nPython 3.11+ upgrade\nSheets UI improvements"]
+```
+
+### Next up — three branches
+
+**`feature/scoring-v2`**
+Current scoring is keyword counting — everything clusters at 0.4 and has no understanding of semantic fit. Replace with LLM-based scoring against `agent-context.md`. Add a `SCORING_LLM_PROVIDER` / `SCORING_MODEL` setting so scoring uses a cheap model (Haiku, GPT-4o-mini) while generation uses a higher-quality one. Fix location handling — stop zeroing out jobs with ambiguous locations and let the LLM assess holistically. Add `scripts/eval_scoring.py` to validate improvement using a fine-tuned LLM as a scoring oracle before merging.
+
+Key decisions: batch all jobs in one LLM call vs. one call per job; whether to keep keyword pre-filter to reduce LLM calls; format of the rationale field.
+
+**`feature/sourcing-v2`** _(depends on scoring-v2 first)_
+Auto-verify Greenhouse tokens at startup so dead boards fail silently instead of polluting logs. Add Apify-based scrapers for YC Jobs, TrueUp, and/or Indeed. Tighten LinkedIn queries for better signal-to-noise.
+
+Key decisions: which Apify actors to use (needs research at apify.com/store); per-source job cap config.
+
+**`feature/sheets-ui`** _(depends on scoring-v2 first)_
+Format `title` as `=HYPERLINK(url, title)` for one-click access. Score as percentage. Document a filter view setup for daily review. Low value until data quality upstream is fixed.
+
+Key decisions: `USER_ENTERED` vs `RAW` for append (risk: job titles containing `=` misinterpreted as formulas).
+
+### Phase 3 — Intelligence layer
+
+- **Explainability** — store LLM rationale per job in CSV and Sheet; surface top reasons in digest
+- **Application memory** — track outcomes (applied, interviewed, rejected); recalibrate scoring over time; likely needs SQLite in `private/`
+- **Predictive company intelligence** — monitor funding signals (Crunchbase, Harmonic) for companies likely to hire PMs before they post; separate "watchlist" section in digest email
+
+### Phase 4 — Scale and ops
+
+- **Slack ingestion** — ingest job posts from a channel (bot needs `channels:history` scope)
+- **Streamlit UI** — local web app for reviewing, filtering, updating status; most demonstrable as portfolio artifact
+- **Python 3.11+ upgrade** — `google-auth` and `urllib3` both warn on 3.9 (EOL); low risk, removes noise
+
+### Tech debt
+
+| Item | Severity | Notes |
+|------|----------|-------|
+| Python 3.9 EOL | Medium | `google-auth` will eventually drop support; warnings on every run |
+| Keyword scoring | High | Addressed in `feature/scoring-v2` |
+| LLM scoring latency | Medium | 150-200 calls/run at ~0.3s each = ~60s added; batching strategy needed |
+| Greenhouse 404s | Low | Auto-verify in `feature/sourcing-v2` will fix permanently |
+| GitHub Actions cache key | Low | Fixed key `seen-jobs-v1`; consider date-rolling key to prevent unbounded growth |
