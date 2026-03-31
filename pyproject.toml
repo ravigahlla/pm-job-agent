@@ -16,6 +16,8 @@ dependencies = [
     "langgraph>=0.2.40",
     "pyyaml>=6.0",
     "apify-client>=1.7",
+    "gspread>=6.0",
+    "google-auth>=2.0",
 ]
 
 [project.scripts]

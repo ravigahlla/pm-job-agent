@@ -47,6 +47,14 @@ class Settings(BaseSettings):
         description="Days before a seen job ID expires and can be surfaced again.",
     )
 
+    # Google Sheets tracker — optional; sync_sheets step skips if sheet ID is absent.
+    # google_service_account_path points to a local JSON key file (gitignored).
+    google_sheets_id: Optional[str] = None
+    google_service_account_path: Path = Field(
+        default=Path("private/service_account.json"),
+        description="Path to Google service account JSON key file (gitignored).",
+    )
+
     # Email digest (Gmail SMTP) — all optional; notify step skips if app password is absent.
     gmail_sender: Optional[str] = None
     gmail_app_password: Optional[SecretStr] = None

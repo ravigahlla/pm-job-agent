@@ -4,12 +4,12 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** A two-step workflow:
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, writes a timestamped CSV to `outputs/`, and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with keyword matching, runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
 2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
 
-**Not in code yet:** Google Sheets sync, Slack channel ingestion, Slack notifications, additional job sources (YCombinator, TrueUp, Indeed), predictive company intelligence (funding signals → proactive outreach).
+**Not in code yet:** Slack channel ingestion, Slack notifications, additional job sources (YCombinator, TrueUp, Indeed), predictive company intelligence (funding signals → proactive outreach).
 
 ## Architecture
 
@@ -27,6 +27,7 @@ flowchart TB
     dedup[Deduplicate_vs_seen_jobs]
     digest[LLM_digest]
     persist[Write_CSV_new_col_update_seen_jobs]
+    syncSheets[Sync_new_jobs_to_Google_Sheet]
     notifyEmail["Email_new_roles_only"]
   end
 
@@ -47,7 +48,8 @@ flowchart TB
   rank --> dedup
   dedup --> digest
   digest --> persist
-  persist --> notifyEmail
+  persist --> syncSheets
+  syncSheets --> notifyEmail
   notifyEmail --> openCSV
   openCSV --> readFlagged
   readFlagged --> genDocs
@@ -143,7 +145,34 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
    Without these keys, the notify step is silently skipped — the run completes normally and only the CSV is written.
 
-5. **Career context** — add or edit `private/agent-context.md` (gitignored). Set `AGENT_CONTEXT_PATH` in `.env` if you want a different path.
+5. **Google Sheets tracker (optional)** — after each run, new jobs are appended to a single persistent Google Sheet. This is your cross-run tracker: sort by score, update `status` (applied / interested / skipped), add notes. The pipeline never overwrites your edits.
+
+   **One-time setup:**
+
+   1. Go to [console.cloud.google.com](https://console.cloud.google.com), create a project, and enable the **Google Sheets API**.
+   2. Under **IAM & Admin → Service Accounts**, create a service account. Under its **Keys** tab, add a key → JSON. Save the downloaded file as `private/service_account.json` (gitignored).
+   3. Create a blank Google Sheet. Copy its ID from the URL — the long alphanumeric string between `/d/` and `/edit`.
+   4. Share the Sheet with the service account's `client_email` (found in the JSON key file) — give it **Editor** access.
+   5. Add to `.env`:
+
+   ```
+   GOOGLE_SHEETS_ID=your_sheet_id_here
+   # GOOGLE_SERVICE_ACCOUNT_PATH defaults to private/service_account.json
+   ```
+
+   **Sheet columns written by the pipeline:**
+
+   | Column | Set by |
+   |--------|--------|
+   | `job_id`, `title`, `company`, `location`, `url`, `score`, `source`, `discovered_date`, `new` | Pipeline on append (never overwritten) |
+   | `status`, `notes` | You — pipeline never touches these |
+   | `resume_note`, `cover_letter` | Reserved for `pm-job-agent generate` (future) |
+
+   Without these settings, the `sync_sheets` step is silently skipped — the run completes normally with only the CSV written.
+
+   **For GitHub Actions:** add `GOOGLE_SHEETS_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (full JSON content of the key file) as repository secrets.
+
+6. **Career context** — add or edit `private/agent-context.md` (gitignored). Set `AGENT_CONTEXT_PATH` in `.env` if you want a different path.
 
 6. **Search profile** — edit `private/search_profile.yaml`:
 
@@ -209,11 +238,11 @@ Inside `src/pm_job_agent/`:
 | Path | Role |
 |------|------|
 | `config/` | `Settings` from `.env`; `SearchProfile` loaded from `private/search_profile.yaml` |
-| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `deduplicate`, `digest`, `persist`, `notify`, `generation` |
+| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `deduplicate`, `digest`, `persist`, `sync_sheets`, `notify`, `generation` |
 | `graphs/` | LangGraph compile (`build_core_loop_graph`) |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
-| `integrations/` | `greenhouse.py`: Greenhouse board client. `linkedin.py`: LinkedIn via Apify Actor |
+| `integrations/` | `greenhouse.py`: Greenhouse board client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
 | `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
 
 ## Automated daily runs
@@ -231,6 +260,13 @@ The pipeline runs automatically on weekday mornings via GitHub Actions (`.github
 | `GMAIL_APP_PASSWORD` | Gmail app password for digest email |
 | `GMAIL_SENDER` | Sender address |
 | `NOTIFY_EMAIL` | Recipient address |
+
+**Optional secrets (Google Sheets tracker):**
+
+| Secret | What it holds |
+|--------|---------------|
+| `GOOGLE_SHEETS_ID` | Sheet ID from the URL — enables cross-run tracker |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full contents of `private/service_account.json` |
 
 `private/seen_jobs.json` is persisted between runs via `actions/cache` keyed on the day's date. This is what prevents the same jobs from appearing in the digest every day.
 

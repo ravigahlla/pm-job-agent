@@ -1,4 +1,4 @@
-"""Compile the discover → score → deduplicate → digest → persist → notify pipeline.
+"""Compile the discover → score → deduplicate → digest → persist → sync_sheets → notify pipeline.
 
 Document generation is intentionally absent from this graph. Run
 `pm-job-agent generate <csv>` after reviewing the output CSV to generate
@@ -17,6 +17,7 @@ from pm_job_agent.agents.digest import make_digest_node
 from pm_job_agent.agents.discovery import discover_jobs
 from pm_job_agent.agents.notify import make_notify_node
 from pm_job_agent.agents.persist import persist_jobs
+from pm_job_agent.agents.sync_sheets import make_sync_sheets_node
 from pm_job_agent.agents.scoring import score_jobs
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.graphs.state import CoreLoopState
@@ -34,6 +35,7 @@ def build_core_loop_graph(llm: Optional[LLMClient] = None):
     graph.add_node("deduplicate", make_deduplicate_node(settings))
     graph.add_node("digest", make_digest_node(client))
     graph.add_node("persist", persist_jobs)
+    graph.add_node("sync_sheets", make_sync_sheets_node(settings))
     graph.add_node("notify", make_notify_node(settings))
     graph.add_edge(START, "load_context")
     graph.add_edge("load_context", "discover")
@@ -41,6 +43,7 @@ def build_core_loop_graph(llm: Optional[LLMClient] = None):
     graph.add_edge("score", "deduplicate")
     graph.add_edge("deduplicate", "digest")
     graph.add_edge("digest", "persist")
-    graph.add_edge("persist", "notify")
+    graph.add_edge("persist", "sync_sheets")
+    graph.add_edge("sync_sheets", "notify")
     graph.add_edge("notify", END)
     return graph.compile()

@@ -4,15 +4,19 @@
 # inbox before your work day starts.
 #
 # Required repository secrets (Settings → Secrets and variables → Actions):
-#   AGENT_CONTEXT_MD      — contents of private/agent-context.md
-#   SEARCH_PROFILE_YAML   — contents of private/search_profile.yaml
-#   ANTHROPIC_API_KEY     — (or whichever LLM provider you use)
-#   APIFY_API_TOKEN       — LinkedIn job scraping via Apify
-#   GMAIL_SENDER          — Gmail address that sends the digest
-#   GMAIL_APP_PASSWORD    — Gmail App Password (not your account password)
-#   NOTIFY_EMAIL          — recipient address for the digest email
+#   AGENT_CONTEXT_MD            — contents of private/agent-context.md
+#   SEARCH_PROFILE_YAML         — contents of private/search_profile.yaml
+#   ANTHROPIC_API_KEY           — (or whichever LLM provider you use)
+#   APIFY_API_TOKEN             — LinkedIn job scraping via Apify
+#   GMAIL_SENDER                — Gmail address that sends the digest
+#   GMAIL_APP_PASSWORD          — Gmail App Password (not your account password)
+#   NOTIFY_EMAIL                — recipient address for the digest email
 #
-# Optional secrets:
+# Optional secrets (Google Sheets tracker):
+#   GOOGLE_SHEETS_ID            — Sheet ID from the URL (enables cross-run job tracker)
+#   GOOGLE_SERVICE_ACCOUNT_JSON — full contents of private/service_account.json
+#
+# Optional secrets (LLM provider switching):
 #   OPENAI_API_KEY, GOOGLE_API_KEY — if you switch LLM providers
 
 name: Daily job digest
@@ -52,14 +56,19 @@ jobs:
           key: seen-jobs-v1
 
       # Write gitignored private files from repository secrets.
+      # GOOGLE_SERVICE_ACCOUNT_JSON is optional — only written if the secret is set.
       - name: Write private config files
         env:
           AGENT_CONTEXT_MD: ${{ secrets.AGENT_CONTEXT_MD }}
           SEARCH_PROFILE_YAML: ${{ secrets.SEARCH_PROFILE_YAML }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           mkdir -p private
           printf '%s' "$AGENT_CONTEXT_MD" > private/agent-context.md
           printf '%s' "$SEARCH_PROFILE_YAML" > private/search_profile.yaml
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > private/service_account.json
+          fi
 
       - name: Run pipeline
         env:
@@ -71,6 +80,7 @@ jobs:
           GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
           # NOTIFY_TOP_N and SEEN_JOBS_TTL_DAYS use defaults from settings.py (20 and 60).
           # Only add these as secrets if you need to override them.
         run: pm-job-agent run
