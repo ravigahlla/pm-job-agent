@@ -16,6 +16,9 @@
 #   GOOGLE_SHEETS_ID            — Sheet ID from the URL (enables cross-run job tracker)
 #   GOOGLE_SERVICE_ACCOUNT_JSON — full contents of private/service_account.json
 #
+# Optional secrets (scoring):
+#   SCORING_CRITERIA_MD         — contents of private/scoring_criteria.md (personalised rubric)
+#
 # Optional secrets (LLM provider switching):
 #   OPENAI_API_KEY, GOOGLE_API_KEY — if you switch LLM providers
 
@@ -62,12 +65,16 @@ jobs:
           AGENT_CONTEXT_MD: ${{ secrets.AGENT_CONTEXT_MD }}
           SEARCH_PROFILE_YAML: ${{ secrets.SEARCH_PROFILE_YAML }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SCORING_CRITERIA_MD: ${{ secrets.SCORING_CRITERIA_MD }}
         run: |
           mkdir -p private
           printf '%s' "$AGENT_CONTEXT_MD" > private/agent-context.md
           printf '%s' "$SEARCH_PROFILE_YAML" > private/search_profile.yaml
           if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
             printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > private/service_account.json
+          fi
+          if [ -n "$SCORING_CRITERIA_MD" ]; then
+            printf '%s' "$SCORING_CRITERIA_MD" > private/scoring_criteria.md
           fi
 
       - name: Run pipeline
