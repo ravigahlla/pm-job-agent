@@ -402,5 +402,5 @@ This applies across all phases and should be revisited whenever a new LLM-heavy 
 | LLM scoring latency | Medium | 150-200 calls/run at ~0.3s each = ~60s added; batching strategy needed |
 | Greenhouse 404s | Low | Auto-verify in `feature/sourcing-v2` will fix permanently |
 | GitHub Actions cache key | Low | Fixed key `seen-jobs-v1`; consider date-rolling key to prevent unbounded growth |
-| gspread `update()` argument order | Low | `rescore_sheet.py` line 163 uses deprecated positional args; change to `update(values=..., range_name=...)` before gspread drops support |
+| gspread `update()` argument order | Low | Fixed — `rescore_sheet.py` now uses named args `update(values=..., range_name=...)` |
 | Meta/LinkedIn duplicates | Medium | ~20 identical "Product Manager @ Meta" rows from same scrape; dedup by (company, title) needed in `feature/sourcing-v2` |

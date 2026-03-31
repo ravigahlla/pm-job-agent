@@ -160,7 +160,7 @@ def _ensure_rationale_column(client, header: list[str]) -> int:
     try:
         import gspread
         col_letter = gspread.utils.rowcol_to_a1(1, new_col_idx)[:-1]
-        client._sheet.update(f"{col_letter}1", [["score_rationale"]])
+        client._sheet.update(values=[["score_rationale"]], range_name=f"{col_letter}1")
     except Exception as exc:  # noqa: BLE001
         print(f"Warning: could not add score_rationale header: {exc}", file=sys.stderr)
         return -1  # caller will skip rationale writes
