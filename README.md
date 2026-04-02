@@ -401,6 +401,6 @@ This applies across all phases and should be revisited whenever a new LLM-heavy 
 | Keyword scoring | High | Fixed — shipped in `feature/scoring-v2` |
 | LLM scoring latency | Medium | 150-200 calls/run at ~0.3s each = ~60s added; batching strategy needed |
 | Greenhouse 404s | Low | Auto-verify in `feature/sourcing-v2` will fix permanently |
-| GitHub Actions cache key | Low | Fixed key `seen-jobs-v1`; consider date-rolling key to prevent unbounded growth |
+| GitHub Actions cache key | Low | Fixed — key is now `seen-jobs-v1-${{ github.run_id }}` with `restore-keys` fallback; each run saves a unique entry and restores the most recent |
 | gspread `update()` argument order | Low | Fixed — `rescore_sheet.py` now uses named args `update(values=..., range_name=...)` |
 | Meta/LinkedIn duplicates | Medium | ~20 identical "Product Manager @ Meta" rows from same scrape; dedup by (company, title) needed in `feature/sourcing-v2` |
