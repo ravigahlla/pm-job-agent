@@ -11,11 +11,12 @@ Setup (one-time):
 
 Sheet columns written by this client:
   job_id | title | company | location | url | score | source | discovered_date
-  | new | status | notes | resume_note | cover_letter
+  | new | status | notes | resume_note | cover_letter | score_rationale
 
   - Columns up to `new` are populated on append; never overwritten on re-sync.
   - `status` and `notes` are yours to edit — the pipeline never touches them.
   - `resume_note` and `cover_letter` are reserved for the generate command (future).
+  - `score_rationale` is populated by the scoring agent.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ _SHEET_COLUMNS = [
     "notes",
     "resume_note",
     "cover_letter",
+    "score_rationale",
 ]
 
 # Scopes required for reading and writing Sheets.
@@ -151,6 +153,7 @@ class SheetsClient:
                 "",  # notes — user fills in
                 "",  # resume_note — generate command fills in
                 "",  # cover_letter — generate command fills in
+                job.get("score_rationale", ""),
             ])
 
         if not rows_to_append:
