@@ -242,6 +242,36 @@ pm-job-agent generate outputs/run_YYYYMMDD_HHMMSS.csv
 
 Reads every `flagged = yes` row, calls the LLM for a tailored resume note and cover letter opening for each, and writes the results back into the same CSV. Unflagged rows are untouched.
 
+### Evaluate and refine scoring quality
+
+The LLM scorer is only as good as the rubric in `private/scoring_criteria.md`. Use this workflow to spot where it's over- or under-scoring and tighten it:
+
+**Step 1 — Sample jobs across score buckets**
+
+```bash
+python scripts/sample_for_review.py          # 3 jobs per bucket (~12 total)
+python scripts/sample_for_review.py --n 5    # larger sample
+python scripts/sample_for_review.py --seed 42  # reproducible sample
+```
+
+Pools all `outputs/run_*.csv` files, stratifies into STRONG / PROMISING / BORDERLINE / WEAK, prints each job with its score and rationale, and writes `private/sample_for_review.csv`.
+
+**Step 2 — Fill in your scores**
+
+Open `private/sample_for_review.csv` and fill in `your_score` (1–5) and `your_notes` for each job. Look for patterns where the LLM consistently diverges from your judgment.
+
+**Step 3 — Update the rubric**
+
+Edit `private/scoring_criteria.md` to correct the patterns you found (e.g. "downgrade pre-Series A roles", "ignore titles without AI scope").
+
+**Step 4 — Re-score the Sheet**
+
+```bash
+python scripts/rescore_sheet.py --write
+```
+
+Re-evaluates all Sheet rows with the updated rubric and writes back `score` and `score_rationale`.
+
 ### Local development (no API keys required)
 
 Use the `--provider` flag to override the LLM provider for a single command without editing `.env`. This is the recommended workflow for local testing:
