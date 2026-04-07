@@ -34,6 +34,12 @@ class SearchProfile:
     # empty to skip LinkedIn entirely. Requires APIFY_API_TOKEN to be set in .env.
     linkedin_search_queries: list[str] = field(default_factory=list)
 
+    # Lever board slugs to query (one per target company, e.g. "notion", "ramp").
+    # Find a company's slug at the end of their Lever board URL:
+    #   https://jobs.lever.co/<slug>/
+    # No API key required — Lever's public board API is unauthenticated.
+    lever_board_tokens: list[str] = field(default_factory=list)
+
 
 def load_search_profile(path: Path) -> SearchProfile:
     """Load a SearchProfile from a YAML file. Missing file returns an empty profile (no crash)."""
@@ -56,4 +62,5 @@ def load_search_profile(path: Path) -> SearchProfile:
         exclude_keywords=raw.get("exclude_keywords") or [],
         greenhouse_board_tokens=raw.get("greenhouse_board_tokens") or [],
         linkedin_search_queries=raw.get("linkedin_search_queries") or [],
+        lever_board_tokens=raw.get("lever_board_tokens") or [],
     )

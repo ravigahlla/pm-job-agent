@@ -1,6 +1,6 @@
 # pm-job-agent
 
-Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
+Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + Lever + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
 
 ## Contents
 
@@ -23,7 +23,7 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** A two-step workflow:
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards, Lever boards, and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
 2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
@@ -147,7 +147,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
    APIFY_API_TOKEN=apify_api_xxxxxxxxxxxx
    ```
 
-   Without this key, LinkedIn discovery is silently skipped and Greenhouse runs normally.
+   Without this key, LinkedIn discovery is silently skipped; Greenhouse and Lever run normally (no API key required for either).
 
 4. **Email digest (optional)** — after each run, the pipeline can send a formatted HTML email with the top-N scored jobs and the LLM digest summary. Requires a Gmail App Password (not your account password):
 
@@ -216,7 +216,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
      - "Senior PM AI"
    ```
 
-   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. Without this file, discovery returns zero jobs.
+   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. Without this file, discovery returns zero jobs.
 
 ## Usage
 
@@ -226,7 +226,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 pm-job-agent run
 ```
 
-Runs discovery (Greenhouse + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with a `flagged` column (empty by default). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
+Runs discovery (Greenhouse + Lever + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with a `flagged` column (empty by default). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
 
 ```bash
 pm-job-agent run --json   # print full graph state as JSON (includes agent_context — treat as sensitive)
@@ -305,7 +305,7 @@ Inside `src/pm_job_agent/`:
 | `graphs/` | LangGraph compile (`build_core_loop_graph`) |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
-| `integrations/` | `greenhouse.py`: Greenhouse board client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
+| `integrations/` | `greenhouse.py`: Greenhouse board client. `lever.py`: Lever board client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
 | `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
 
 ## Automated daily runs
@@ -355,15 +355,15 @@ The build context excludes `private/`, `.env`, and virtualenvs via `.dockerignor
 ```mermaid
 flowchart LR
   p1["Phase 1\nCore Loop\n✓ Shipped Mar 27–31 2026"]
-  p2["Phase 2\nSignal Quality\n← Next"]
-  p3["Phase 3\nIntelligence Layer"]
+  p2["Phase 2\nSignal Quality\n✓ Shipped Apr 2026"]
+  p3["Phase 3\nIntelligence Layer\n← Next"]
   p4["Phase 4\nScale and Ops"]
 
   p1 --> p2 --> p3 --> p4
 
-  p1 --- s1["Greenhouse + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
+  p1 --- s1["Greenhouse + Lever + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
 
-  p2 --- s2["More sources: YC, TrueUp, Indeed\nAuto-verify Greenhouse tokens\nEval framework improvements"]
+  p2 --- s2["LLM semantic scoring (scoring-v2)\nPersonalised rubric injection\nEval + human scoring workflow\nGreenhouse 404 handling\nLinkedIn query tightening\n(company, title) dedup\nMin description length filter\nLever integration"]
 
   p3 --- s3["Explainability: why a role scored highly\nApplication memory + outcome tracking\nPredictive company intelligence\nFunding signals → proactive outreach"]
 
@@ -375,28 +375,20 @@ flowchart LR
 **Phase 1 — Core Loop** _(Mar 27–30 2026)_
 Scaffold → Greenhouse discovery → keyword scoring → real LLM providers → on-demand document generation → LinkedIn/Apify scraping → cross-run deduplication → email digest → GitHub Actions cron → Google Sheets tracker.
 
-**`feature/scoring-v2`** _(Mar 31 2026)_
-See entry below.
-
----
-
-### Next up — three branches
-
 **`feature/scoring-v2`** ✓ Shipped Mar 31 2026
 Replaced keyword scoring with LLM semantic scoring (keyword pre-filter + per-job LLM call against `agent-context.md`). Added `SCORING_LLM_PROVIDER` / `SCORING_MODEL` for model tiering, `SCORING_CRITERIA_PATH` to inject a personalised rubric into the system prompt, `score_rationale` field in CSV and Sheet, `--provider` CLI flag for local Ollama testing, `scripts/eval_scoring.py` for oracle-based quality validation, and `scripts/rescore_sheet.py` to back-fill v2 scores on existing Sheet rows.
 
 **Quality validation (Mar 31 2026):** Ran `eval_scoring.py` against today's 191-job run (20-job oracle sample): MAE 0.189, Spearman 0.621. Scoring model is directionally correct and identifies domain/seniority gaps accurately; slight conservative bias (~0.19 below oracle) expected given cheaper scoring model. Pre-filter correctly drops non-AI-adjacent roles. Ran `rescore_sheet.py --write` against all 244 historical Sheet rows: average score rose from 0.139 (keyword noise) to 0.307 (semantic), 87 large changes (>0.30). Notable rescores: `Principal PM, AI @ Webflow` 0.40 → 0.82, `Product Manager, Subscription & Payments @ Webflow` 0.40 → 0.72.
 
-**`feature/sourcing-v2`** _(depends on scoring-v2 first)_
-Auto-verify Greenhouse tokens at startup so dead boards fail silently instead of polluting logs. Add Apify-based scrapers for YC Jobs, TrueUp, and/or Indeed. Tighten LinkedIn queries for better signal-to-noise.
+**`feature/sourcing-v2`** ✓ Shipped Apr 2026
+Tightened LinkedIn search queries for better signal-to-noise. Added Greenhouse 404 handling (stale board tokens now skip silently). Added `scripts/sample_for_review.py` for stratified human scoring workflow. Added minimum description length pre-filter to drop generic listings before LLM scoring. Added (company, title) cross-source deduplication to collapse duplicate postings from multiple LinkedIn queries or boards.
 
-Key decisions: which Apify actors to use (needs research at apify.com/store); per-source job cap config.
+**`feature/lever-integration`** ✓ Shipped Apr 2026
+Added Lever as a third job source (no API key required). `LeverClient` queries the public Lever posting API per company slug, filters by target titles, and gracefully skips 404 boards. `lever_board_tokens` added to `SearchProfile`. Source block wired into `discovery.py` after LinkedIn.
 
-Known sourcing quality issues to fix in this branch:
-- **Meta duplicates** — ~20 identical "Product Manager @ Meta" rows in the Sheet from the same scrape; need cross-run deduplication by (company, title) not just job_id
-- **Generic LinkedIn listings** — roles like "Product Manager @ Meta" with no description snippet reach the LLM with insufficient context; explore requiring a minimum description length before LLM scoring
+### Next up
 
-**`feature/sheets-ui`** _(depends on scoring-v2 first)_
+**`feature/sheets-ui`**
 Format `title` as `=HYPERLINK(url, title)` for one-click access. Score as percentage. Document a filter view setup for daily review. Low value until data quality upstream is fixed.
 
 Key decisions: `USER_ENTERED` vs `RAW` for append (risk: job titles containing `=` misinterpreted as formulas).

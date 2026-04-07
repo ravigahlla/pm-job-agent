@@ -4,9 +4,15 @@ Flow: load SearchProfile → query each configured source → deduplicate → re
 
 Sources:
   - Greenhouse: queried if greenhouse_board_tokens is non-empty (no API key required)
+  - Lever:      queried if lever_board_tokens is non-empty (no API key required)
   - LinkedIn:   queried if linkedin_search_queries is non-empty AND APIFY_API_TOKEN is set
 
-Both sources produce JobDicts and share the same deduplication dict keyed by job ID.
+Two deduplication passes run within each pipeline execution:
+  1. By job_id — prevents the same ID appearing twice across sources/queries.
+  2. By (company, title) — prevents large platforms (Meta, Google) from returning
+     the same posting under different IDs across multiple LinkedIn search queries,
+     and collapses roles that appear on both Greenhouse and Lever.
+
 If a source is unconfigured or fails, it is skipped — the run continues with whatever
 jobs other sources returned.
 """
@@ -19,6 +25,7 @@ from pm_job_agent.config.search_profile import load_search_profile
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.graphs.state import CoreLoopState
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
+from pm_job_agent.integrations.lever import LeverClient, LeverError
 from pm_job_agent.integrations.linkedin import LinkedInClient, LinkedInError
 from pm_job_agent.services.types import JobDict
 
@@ -79,4 +86,40 @@ def discover_jobs(_: CoreLoopState) -> dict:
                 # Log and continue — one bad query should not kill the whole run.
                 logger.warning("LinkedIn query '%s' failed: %s", query, exc)
 
-    return {"jobs": jobs}
+    # --- Lever ---
+    if not profile.lever_board_tokens:
+        logger.info(
+            "No lever_board_tokens configured in %s — skipping Lever.",
+            settings.search_profile_path,
+        )
+    else:
+        lv_client = LeverClient()
+        for token in profile.lever_board_tokens:
+            try:
+                fetched = lv_client.fetch_jobs(token, profile.target_titles)
+                for job in fetched:
+                    if job["id"] not in seen:
+                        seen[job["id"]] = True
+                        jobs.append(job)
+                logger.info("Lever '%s': %d matching jobs.", token, len(fetched))
+            except LeverError as exc:
+                # Log and continue — one bad board should not kill the whole run.
+                logger.warning("Lever board '%s' failed: %s", token, exc)
+
+    # Second dedup pass: drop jobs with the same (company, title) pair.
+    # Large platforms (Meta, Google) return the same listing under different IDs
+    # across multiple LinkedIn queries; this also collapses roles that appear on
+    # both Greenhouse and Lever boards.
+    seen_company_title: set[tuple[str, str]] = set()
+    deduped: list[JobDict] = []
+    for job in jobs:
+        key = (job.get("company", "").lower().strip(), job.get("title", "").lower().strip())
+        if key not in seen_company_title:
+            seen_company_title.add(key)
+            deduped.append(job)
+
+    removed = len(jobs) - len(deduped)
+    if removed:
+        logger.info("Removed %d duplicate job(s) by (company, title).", removed)
+
+    return {"jobs": deduped}
