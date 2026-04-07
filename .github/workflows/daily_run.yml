@@ -102,3 +102,14 @@ jobs:
         with:
           path: private/seen_jobs.json
           key: seen-jobs-v1-${{ github.run_id }}
+
+      # Upload the run CSV as an artifact so it can be downloaded from the
+      # Actions UI for local eval (outputs/ is gitignored).
+      # Artifacts are retained for 30 days by default.
+      - name: Upload run CSV
+        if: always() && hashFiles('outputs/run_*.csv') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-csv-${{ github.run_id }}
+          path: outputs/run_*.csv
+          retention-days: 30
