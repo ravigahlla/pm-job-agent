@@ -99,7 +99,7 @@ class TestPreFilter:
         assert passes
 
     def test_location_does_not_disqualify(self) -> None:
-        """Locations are no longer a hard filter — the LLM handles them."""
+        """Keyword pre-filter ignores location; strict geo runs in discovery, not here."""
         job = _job(location="Tokyo, Japan")
         profile = _profile(include=["AI"], locations=["San Francisco"])
         job["description_snippet"] = "AI product manager role"
@@ -231,7 +231,7 @@ class TestScoreSingle:
         assert "failed" in result["score_rationale"].lower()
 
     def test_location_mismatch_does_not_disqualify(self) -> None:
-        """A job in Tokyo must still get LLM-scored, not zeroed out."""
+        """Scoring still LLM-scores OOS locations if they reach this node (e.g. soft filter)."""
         mock_llm = MagicMock()
         mock_llm.generate.return_value = json.dumps(
             {"score": 0.7, "rationale": "Remote-friendly role."}

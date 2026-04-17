@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pm_job_agent.config.search_profile import SearchProfile
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.integrations.linkedin import (
     LinkedInClient,
@@ -18,7 +19,6 @@ from pm_job_agent.integrations.linkedin import (
     _map_item,
     _title_matches,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -106,6 +106,22 @@ class TestMapItem:
         assert job["url"] == "https://www.linkedin.com/jobs/view/1234567890"
         assert job["source"] == "linkedin"
         assert job["description_snippet"] == "Own roadmap."
+        assert job.get("source_posted_at", "") == ""
+        assert job.get("source_scraped_at", "") == ""
+
+    def test_maps_posted_at_and_scraped_at(self) -> None:
+        item = {
+            "title": "PM",
+            "company": "Co",
+            "jobUrl": "https://www.linkedin.com/jobs/view/42",
+            "description": "x",
+            "postedAt": "2 weeks ago",
+            "scrapedAt": "2026-04-01T12:00:00.000Z",
+        }
+        job = _map_item(item)
+        assert job is not None
+        assert job["source_posted_at"] == "2 weeks ago"
+        assert job["source_scraped_at"] == "2026-04-01T12:00:00.000Z"
 
     def test_accepts_companyname_field(self) -> None:
         item = {
@@ -241,6 +257,34 @@ class TestLinkedInClientFetchJobs:
         run_input = call_kwargs[1]["run_input"]
         assert run_input["maxResults"] == 10
 
+    def test_passes_apify_geo_and_date_from_profile(self) -> None:
+        mock_client = _make_apify_client_mock([])
+        profile = SearchProfile(
+            linkedin_location="San Francisco Bay Area",
+            linkedin_date_posted="r86400",
+            linkedin_sort_by="DD",
+        )
+
+        with patch("apify_client.ApifyClient", return_value=mock_client):
+            client = LinkedInClient(api_token="fake-token")
+            client.fetch_jobs("PM", title_keywords=[], profile=profile)
+
+        run_input = mock_client.actor.return_value.call.call_args[1]["run_input"]
+        assert run_input["location"] == "San Francisco Bay Area"
+        assert run_input["datePosted"] == "r86400"
+        assert run_input["sortBy"] == "DD"
+
+    def test_dateposted_omitted_when_all(self) -> None:
+        mock_client = _make_apify_client_mock([])
+        profile = SearchProfile(linkedin_date_posted="all")
+
+        with patch("apify_client.ApifyClient", return_value=mock_client):
+            client = LinkedInClient(api_token="fake-token")
+            client.fetch_jobs("PM", title_keywords=[], profile=profile)
+
+        run_input = mock_client.actor.return_value.call.call_args[1]["run_input"]
+        assert "datePosted" not in run_input
+
 
 # ---------------------------------------------------------------------------
 # Discovery agent — LinkedIn branch behaviour
@@ -314,6 +358,37 @@ class TestDiscoveryLinkedInBranch:
         assert result["jobs"][0]["source"] == "linkedin"
         assert result["jobs"][0]["id"] == "linkedin:9999"
 
+    def test_strict_location_drops_out_of_area_before_scoring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Beverly Hills must not appear when profile only lists Bay Area substrings."""
+        profile_yaml = tmp_path / "profile.yaml"
+        profile_yaml.write_text(
+            "linkedin_search_queries:\n  - 'Product Manager'\n"
+            "location_filter: strict\n"
+            "locations:\n  - 'San Francisco'\n  - 'Oakland'\n  - 'Remote'\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(profile_yaml))
+        monkeypatch.setenv("APIFY_API_TOKEN", "fake-token")
+        get_settings.cache_clear()
+
+        li_job = {
+            "title": "Principal PM",
+            "company": "OP",
+            "location": "Beverly Hills, CA",
+            "jobUrl": "https://www.linkedin.com/jobs/view/4242",
+            "description": "AI strategy.",
+        }
+        mock_apify = _make_apify_client_mock([li_job])
+
+        from pm_job_agent.agents.discovery import discover_jobs
+
+        with patch("apify_client.ApifyClient", return_value=mock_apify):
+            result = discover_jobs({})
+
+        assert result["jobs"] == []
+
 
 # ---------------------------------------------------------------------------
 # SearchProfile: linkedin_search_queries loads from YAML
@@ -342,3 +417,20 @@ class TestSearchProfileLinkedIn:
 
         profile = load_search_profile(profile_path)
         assert profile.linkedin_search_queries == []
+
+    def test_loads_linkedin_actor_and_location_filter_fields(self, tmp_path: Path) -> None:
+        from pm_job_agent.config.search_profile import load_search_profile
+
+        profile_path = tmp_path / "profile.yaml"
+        profile_path.write_text(
+            "location_filter: soft\n"
+            "linkedin_location: 'Austin, TX'\n"
+            "linkedin_date_posted: r2592000\n"
+            "linkedin_sort_by: R\n",
+            encoding="utf-8",
+        )
+        profile = load_search_profile(profile_path)
+        assert profile.location_filter == "soft"
+        assert profile.linkedin_location == "Austin, TX"
+        assert profile.linkedin_date_posted == "r2592000"
+        assert profile.linkedin_sort_by == "R"

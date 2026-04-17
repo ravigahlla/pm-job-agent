@@ -10,8 +10,10 @@ Scoring pipeline per job:
      - LLM returns JSON: {"score": 0.0-1.0, "rationale": "1-2 sentences"}.
      - If JSON parsing fails, logs a warning and falls back to keyword score.
 
-Location is now passed to the LLM as context rather than used as a hard filter.
-This fixes the previous behaviour where ambiguous or blank locations zeroed out good fits.
+Location is passed to the LLM for holistic scoring. A strict substring location gate
+(running in ``discover_jobs`` when ``location_filter`` is ``strict`` and ``locations``
+is non-empty) drops obvious out-of-area listings before scoring; blank locations still
+pass so ambiguous listings reach the LLM.
 
 The scoring node is a factory (make_score_node) so the LLM client and agent context
 are injected at graph-build time, keeping the node function itself pure and testable.
@@ -91,7 +93,8 @@ def _passes_pre_filter(job: JobDict, profile: SearchProfile) -> tuple[bool, str]
 
     Checks exclude_keywords first (immediate disqualification), then requires at least
     one include_keyword match. Jobs that pass get an LLM score; those that don't get 0.0.
-    Location is intentionally not checked here — the LLM handles it holistically.
+    Location substrings are not checked here — strict gating happens in discovery;
+    the LLM still sees location for holistic scoring.
     """
     haystack = (job.get("title", "") + " " + job.get("description_snippet", "")).lower()
 
@@ -175,7 +178,9 @@ def _score_single(
     if not passes:
         return {**job, "score": _SCORE_MIN, "score_rationale": reason}
 
-    score, rationale = _llm_score_job(job, profile, llm, context_excerpt, scoring_system=scoring_system)
+    score, rationale = _llm_score_job(
+        job, profile, llm, context_excerpt, scoring_system=scoring_system
+    )
     return {**job, "score": score, "score_rationale": rationale}
 
 

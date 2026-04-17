@@ -17,6 +17,10 @@ class _JobDictBase(TypedDict):
 class JobDict(_JobDictBase, total=False):
     # Optional fields — not all sources provide these.
     location: str
+    # LinkedIn / Apify: relative text e.g. "2 weeks ago", when provided by the actor.
+    source_posted_at: str
+    # ISO timestamp from the scraper, when provided.
+    source_scraped_at: str
 
 
 class _RankedJobDictBase(JobDict):

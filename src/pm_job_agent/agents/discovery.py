@@ -15,13 +15,17 @@ Two deduplication passes run within each pipeline execution:
 
 If a source is unconfigured or fails, it is skipped — the run continues with whatever
 jobs other sources returned.
+
+When ``location_filter`` is ``strict`` in the search profile and ``locations`` is
+non-empty, jobs whose non-empty ``location`` does not contain any profile substring
+are dropped after deduplication (blank location still passes).
 """
 
 from __future__ import annotations
 
 import logging
 
-from pm_job_agent.config.search_profile import load_search_profile
+from pm_job_agent.config.search_profile import job_passes_location_gate, load_search_profile
 from pm_job_agent.config.settings import get_settings
 from pm_job_agent.graphs.state import CoreLoopState
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
@@ -77,7 +81,7 @@ def discover_jobs(_: CoreLoopState) -> dict:
         )
         for query in profile.linkedin_search_queries:
             try:
-                fetched = li_client.fetch_jobs(query, profile.target_titles)
+                fetched = li_client.fetch_jobs(query, profile.target_titles, profile)
                 for job in fetched:
                     if job["id"] not in seen:
                         seen[job["id"]] = True
@@ -122,4 +126,16 @@ def discover_jobs(_: CoreLoopState) -> dict:
     if removed:
         logger.info("Removed %d duplicate job(s) by (company, title).", removed)
 
-    return {"jobs": deduped}
+    # Strict location gate (substring match); blank job.location always passes.
+    location_kept: list[JobDict] = []
+    for job in deduped:
+        ok, reason = job_passes_location_gate(job, profile)
+        if ok:
+            location_kept.append(job)
+        else:
+            logger.debug("%s — job %s", reason, job.get("id"))
+    dropped_loc = len(deduped) - len(location_kept)
+    if dropped_loc:
+        logger.info("Removed %d job(s) by strict location filter.", dropped_loc)
+
+    return {"jobs": location_kept}

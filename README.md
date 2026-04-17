@@ -183,7 +183,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
    | Column | Set by |
    |--------|--------|
-   | `job_id`, `title`, `company`, `location`, `url`, `score`, `source`, `discovered_date`, `new` | Pipeline on append (never overwritten) |
+   | `job_id`, `title`, `company`, `location`, `url`, `score`, `source`, `discovered_date`, `source_posted_at`, `new` | Pipeline on append (never overwritten) |
    | `status`, `notes` | You — pipeline never touches these |
    | `resume_note`, `cover_letter` | Reserved for `pm-job-agent generate` (future) |
 
@@ -193,7 +193,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
 6. **Career context** — add or edit `private/agent-context.md` (gitignored). Set `AGENT_CONTEXT_PATH` in `.env` if you want a different path.
 
-6. **Search profile** — edit `private/search_profile.yaml`:
+7. **Search profile** — edit `private/search_profile.yaml`:
 
    ```yaml
    target_titles:
@@ -216,7 +216,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
      - "Senior PM AI"
    ```
 
-   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. Without this file, discovery returns zero jobs.
+   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800` for past week), and `linkedin_sort_by` tune the LinkedIn actor. The run CSV includes `source_posted_at` when the source provides it (for example LinkedIn’s relative “posted” text from Apify). In Sheets, `discovered_date` is the first day this pipeline appended that `job_id`, not the employer’s original post date — compare with `source_posted_at` when present. Without this file, discovery returns zero jobs.
 
 ## Usage
 

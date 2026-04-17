@@ -1,8 +1,8 @@
-"""Dry-run location scoring verification.
+"""Dry-run checks for strict location gate and keyword pre-filter.
 
-Reads an existing CSV from a previous pipeline run and re-scores every job
-using the current scoring logic + your live search_profile.yaml. No API calls,
-no LLM, no writes to the CSV.
+Reads an existing CSV from a previous pipeline run and, for each row, reports
+whether the job would pass ``job_passes_location_gate`` and ``_passes_pre_filter``
+under your live ``private/search_profile.yaml``. No API calls and no LLM.
 
 Usage:
     .venv/bin/python scripts/verify_location_scoring.py [path/to/run.csv]
@@ -19,8 +19,11 @@ from pathlib import Path
 # Allow importing from src/ without installing the package in editable mode.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pm_job_agent.agents.scoring import _score_job  # noqa: E402 (after sys.path fix)
-from pm_job_agent.config.search_profile import load_search_profile  # noqa: E402
+from pm_job_agent.agents.scoring import _passes_pre_filter  # noqa: E402
+from pm_job_agent.config.search_profile import (  # noqa: E402
+    job_passes_location_gate,
+    load_search_profile,
+)
 
 PROFILE_PATH = Path(__file__).parent.parent / "private" / "search_profile.yaml"
 OUTPUTS_DIR = Path(__file__).parent.parent / "outputs"
@@ -29,9 +32,9 @@ COL_W = {
     "title": 45,
     "company": 18,
     "location": 30,
-    "old": 6,
-    "new": 6,
-    "flag": 8,
+    "score": 6,
+    "loc_ok": 6,
+    "kw_ok": 6,
 }
 
 
@@ -53,62 +56,52 @@ def main() -> None:
         sys.exit(f"CSV not found: {csv_path}")
 
     profile = load_search_profile(PROFILE_PATH)
-    print(f"\nProfile locations: {profile.locations or '(none — no location filter)'}")
-    print(f"CSV:               {csv_path.name}\n")
+    print(f"\nProfile location_filter: {profile.location_filter}")
+    print(f"Profile locations:      {profile.locations or '(none)'}")
+    print(f"CSV:                    {csv_path.name}\n")
 
     header = (
         f"{'TITLE':{COL_W['title']}}  "
         f"{'COMPANY':{COL_W['company']}}  "
         f"{'LOCATION':{COL_W['location']}}  "
-        f"{'OLD':>{COL_W['old']}}  "
-        f"{'NEW':>{COL_W['new']}}  "
-        f"{'STATUS':{COL_W['flag']}}"
+        f"{'SCORE':>{COL_W['score']}}  "
+        f"{'LOC_OK':>{COL_W['loc_ok']}}  "
+        f"{'KW_OK':>{COL_W['kw_ok']}}"
     )
     print(header)
     print("-" * len(header))
-
-    filtered_count = 0
-    kept_count = 0
 
     with csv_path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             job = {
+                "id": row.get("id", ""),
                 "title": row.get("title", ""),
                 "company": row.get("company", ""),
-                "location": row.get("location", ""),
-                "description_snippet": row.get("description_snippet", ""),
-                "id": row.get("id", ""),
                 "url": row.get("url", ""),
                 "source": row.get("source", ""),
+                "description_snippet": row.get("description_snippet", ""),
+                "location": row.get("location", ""),
             }
-            old_score = float(row.get("score", 0.0))
-            new_score = _score_job(job, profile)
-
-            was_filtered_by_location = (
-                profile.locations
-                and job["location"]
-                and not any(loc.lower() in job["location"].lower() for loc in profile.locations)
-            )
-
-            if was_filtered_by_location:
-                status = "FILTERED"
-                filtered_count += 1
-            else:
-                status = "OK"
-                kept_count += 1
+            csv_score = float(row.get("score", 0.0) or 0.0)
+            loc_ok, _ = job_passes_location_gate(job, profile)
+            kw_ok, _ = _passes_pre_filter(job, profile)
 
             print(
                 f"{_fmt(job['title'], COL_W['title'])}  "
                 f"{_fmt(job['company'], COL_W['company'])}  "
-                f"{_fmt(job['location'], COL_W['location'])}  "
-                f"{old_score:>{COL_W['old']}.1f}  "
-                f"{new_score:>{COL_W['new']}.1f}  "
-                f"{status}"
+                f"{_fmt(job.get('location', ''), COL_W['location'])}  "
+                f"{csv_score:>{COL_W['score']}.1f}  "
+                f"{'yes' if loc_ok else 'no':>{COL_W['loc_ok']}}  "
+                f"{'yes' if kw_ok else 'no':>{COL_W['kw_ok']}}"
             )
 
     print("-" * len(header))
-    print(f"\nSummary: {kept_count} kept, {filtered_count} filtered by location\n")
+    print(
+        "\nLOC_OK = would pass strict location gate (or soft / no locations). "
+        "KW_OK = would reach LLM under keyword pre-filter. "
+        "SCORE is from the CSV (not recomputed here).\n"
+    )
 
 
 if __name__ == "__main__":

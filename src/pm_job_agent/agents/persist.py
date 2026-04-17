@@ -4,8 +4,12 @@ This is the persist node in the core loop. It always writes a file — even when
 ranked_jobs is empty — so every run produces a record on disk.
 
 Column order is optimised for reviewing in a spreadsheet:
-  score, score_rationale, flagged, new, title, company, location, url, source, id,
-  description_snippet, resume_note, cover_letter
+  score, score_rationale, flagged, new, title, company, location, url, source,
+  source_posted_at, id, description_snippet, resume_note, cover_letter
+
+  ``source_posted_at`` is filled when the job source provides it (e.g. LinkedIn relative
+  ``postedAt`` from Apify). It is not the same as ``discovered_date`` in Google Sheets
+  (first time this pipeline appended the row).
 
 The `flagged` column is empty after a run. Set it to "yes" for roles you want
 to apply to, then run `pm-job-agent generate <this_file>` to generate documents
@@ -30,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 _COLUMNS = [
     "score", "score_rationale", "flagged", "new", "title", "company", "location", "url",
-    "source", "id", "description_snippet", "resume_note", "cover_letter",
+    "source", "source_posted_at", "id", "description_snippet", "resume_note", "cover_letter",
 ]
 
 
@@ -63,7 +67,7 @@ def _write_csv(path: Path, ranked_jobs: list, new_job_ids: set) -> None:
         writer.writeheader()
         for job in ranked_jobs:
             row = {col: job.get(col, "") for col in _COLUMNS}
-            # flagged is always empty on initial write; user fills it in for roles they want to pursue
+            # flagged empty on write; user sets for roles to generate documents for
             row["flagged"] = ""
             row["new"] = "yes" if job.get("id") in new_job_ids else ""
             row["resume_note"] = ""
