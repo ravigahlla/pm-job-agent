@@ -388,6 +388,16 @@ Added Lever as a third job source (no API key required). `LeverClient` queries t
 
 ### Next up
 
+**Email relevance improvements**
+
+- Prefer highlighting **new strong-fit roles** (e.g. “new to Sheet” AND score above a threshold) over simply “new roles discovered”.
+- Make this configurable (threshold, top-N, and whether to include a “low-score but new” section).
+
+**Application tracking consolidation (future)**
+
+- Merge your “already applied” tracker into the Google Sheet so job search status is centralized.
+- Likely needs nuance beyond a single `status` cell (timestamps, source of truth, dedup between systems, and whether the pipeline should ever write to these fields).
+
 **`feature/sheets-ui`**
 Format `title` as `=HYPERLINK(url, title)` for one-click access. Score as percentage. Document a filter view setup for daily review. Low value until data quality upstream is fixed.
 
