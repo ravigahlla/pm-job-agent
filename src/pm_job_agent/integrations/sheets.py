@@ -11,8 +11,10 @@ Setup (one-time):
 
 Sheet columns written by this client:
   job_id | title | company | location | url | score | source | discovered_date
-  | new | status | notes | resume_note | cover_letter | score_rationale
+  | source_posted_at | new | status | notes | resume_note | cover_letter | score_rationale
 
+  - ``discovered_date`` is the date this pipeline first appended the row (ISO), not the
+    employer's original post date. Use ``source_posted_at`` when the job source provides it.
   - Columns up to `new` are populated on append; never overwritten on re-sync.
   - `status` and `notes` are yours to edit — the pipeline never touches them.
   - `resume_note` and `cover_letter` are reserved for the generate command (future).
@@ -24,7 +26,6 @@ from __future__ import annotations
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -43,6 +44,7 @@ _SHEET_COLUMNS = [
     "score",
     "source",
     "discovered_date",
+    "source_posted_at",
     "new",
     "status",
     "notes",
@@ -110,8 +112,8 @@ class SheetsClient:
     def append_jobs(
         self,
         jobs: list[RankedJobDict],
-        new_job_ids: Optional[set[str]] = None,
-        existing_ids: Optional[set[str]] = None,
+        new_job_ids: set[str] | None = None,
+        existing_ids: set[str] | None = None,
     ) -> int:
         """Append jobs to the Sheet, skipping any already present by job_id.
 
@@ -148,6 +150,7 @@ class SheetsClient:
                 job.get("score", ""),
                 job.get("source", ""),
                 today,
+                job.get("source_posted_at", ""),
                 "yes" if job_id in new_job_ids else "",
                 "",  # status — user fills in
                 "",  # notes — user fills in

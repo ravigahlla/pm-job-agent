@@ -21,6 +21,8 @@ def _make_job(title: str = "Senior PM", score: float = 0.6, job_id: str = "green
         "source": "greenhouse",
         "description_snippet": "Great role for an AI PM.",
         "score": score,
+        "freshness_age_hours": 12.0,
+        "freshness_basis": "source_posted_at",
     }
 
 
@@ -105,12 +107,16 @@ class TestWriteCsv:
         path = tmp_path / "out.csv"
         job = _make_job()
         del job["location"]  # location is optional in JobDict
+        del job["freshness_age_hours"]
+        del job["freshness_basis"]
         _write_csv(path, [job], set())
 
         with path.open(encoding="utf-8") as fh:
             rows = list(csv.DictReader(fh))
 
         assert rows[0]["location"] == ""
+        assert rows[0]["freshness_age_hours"] == ""
+        assert rows[0]["freshness_basis"] == ""
 
     def test_multiple_rows_sorted_by_caller(self, tmp_path: Path) -> None:
         path = tmp_path / "out.csv"

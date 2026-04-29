@@ -17,6 +17,14 @@ class _JobDictBase(TypedDict):
 class JobDict(_JobDictBase, total=False):
     # Optional fields — not all sources provide these.
     location: str
+    # LinkedIn / Apify: relative text e.g. "2 weeks ago", when provided by the actor.
+    source_posted_at: str
+    # ISO timestamp from the scraper, when provided.
+    source_scraped_at: str
+    # Normalized age in hours used by freshness filtering/ranking.
+    freshness_age_hours: float
+    # Where freshness_age_hours came from: source_posted_at | first_seen | unknown.
+    freshness_basis: str
 
 
 class _RankedJobDictBase(JobDict):

@@ -14,9 +14,8 @@ import pytest
 
 from pm_job_agent.agents.sync_sheets import make_sync_sheets_node, sync_to_sheet
 from pm_job_agent.config.settings import Settings
-from pm_job_agent.integrations.sheets import SheetsClient, SheetsError
+from pm_job_agent.integrations.sheets import _SHEET_COLUMNS, SheetsClient, SheetsError
 from pm_job_agent.services.types import RankedJobDict
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -278,9 +277,9 @@ class TestSheetsClientAppendJobs:
         jobs = [_job("src:1"), _job("src:2")]
         client.append_jobs(jobs, new_job_ids={"src:1"}, existing_ids=set())
         appended_rows = mock_sheet.append_rows.call_args[0][0]
-        # row[8] is the 'new' column (index 8 in _SHEET_COLUMNS)
-        assert appended_rows[0][8] == "yes"   # src:1 is new
-        assert appended_rows[1][8] == ""      # src:2 is not new
+        idx_new = _SHEET_COLUMNS.index("new")
+        assert appended_rows[0][idx_new] == "yes"   # src:1 is new
+        assert appended_rows[1][idx_new] == ""      # src:2 is not new
 
     def test_skips_jobs_with_no_id(self):
         client, mock_sheet = self._make_client()

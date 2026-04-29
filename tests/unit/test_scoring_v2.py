@@ -99,7 +99,7 @@ class TestPreFilter:
         assert passes
 
     def test_location_does_not_disqualify(self) -> None:
-        """Locations are no longer a hard filter — the LLM handles them."""
+        """Keyword pre-filter ignores location; strict geo runs in discovery, not here."""
         job = _job(location="Tokyo, Japan")
         profile = _profile(include=["AI"], locations=["San Francisco"])
         job["description_snippet"] = "AI product manager role"
@@ -231,7 +231,7 @@ class TestScoreSingle:
         assert "failed" in result["score_rationale"].lower()
 
     def test_location_mismatch_does_not_disqualify(self) -> None:
-        """A job in Tokyo must still get LLM-scored, not zeroed out."""
+        """Scoring still LLM-scores OOS locations if they reach this node (e.g. soft filter)."""
         mock_llm = MagicMock()
         mock_llm.generate.return_value = json.dumps(
             {"score": 0.7, "rationale": "Remote-friendly role."}
@@ -321,6 +321,41 @@ class TestMakeScoreNode(object):
         node = make_score_node(StubLLM())
         result = node({"jobs": [], "agent_context": ""})
         assert result["ranked_jobs"] == []
+
+    def test_node_prefers_at_or_under_24h_jobs_in_sort_order(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "profile.yaml"))
+        (tmp_path / "profile.yaml").write_text(
+            "freshness_boost_under_hours: 24\n",
+            encoding="utf-8",
+        )
+        get_settings.cache_clear()
+
+        class StableLlm:
+            def generate(self, user_prompt: str, *, system_prompt: str = "") -> str:
+                return json.dumps({"score": 0.5, "rationale": "Equal fit"})
+
+        node = make_score_node(StableLlm())
+        result = node(
+            {
+                "agent_context": "",
+                "jobs": [
+                    {
+                        "id": "fresh", "title": "Fresh", "company": "Co",
+                        "url": "https://a.com", "source": "test", "description_snippet": "",
+                        "freshness_age_hours": 24.0,
+                    },
+                    {
+                        "id": "older", "title": "Older", "company": "Co",
+                        "url": "https://b.com", "source": "test", "description_snippet": "",
+                        "freshness_age_hours": 48.0,
+                    },
+                ],
+            }
+        )
+        ranked = result["ranked_jobs"]
+        assert ranked[0]["id"] == "fresh"
 
 
 # ---------------------------------------------------------------------------

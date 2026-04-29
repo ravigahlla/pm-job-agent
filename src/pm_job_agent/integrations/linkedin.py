@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 
+from pm_job_agent.config.search_profile import SearchProfile
 from pm_job_agent.services.types import JobDict
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,12 @@ class LinkedInClient:
         self._api_token = api_token
         self._max_results = max_results
 
-    def fetch_jobs(self, search_query: str, title_keywords: list[str]) -> list[JobDict]:
+    def fetch_jobs(
+        self,
+        search_query: str,
+        title_keywords: list[str],
+        profile: SearchProfile | None = None,
+    ) -> list[JobDict]:
         """Run the LinkedIn scraper Actor and return matched jobs.
 
         Args:
@@ -45,6 +51,8 @@ class LinkedInClient:
             title_keywords: Filter the results locally — keep only jobs whose title
                             contains any of these strings (case-insensitive). If empty,
                             all results are returned.
+            profile: Optional search profile for Apify ``location``, ``datePosted``,
+                     and ``sortBy`` (see automation-lab/linkedin-jobs-scraper).
 
         Raises:
             LinkedInError: On Actor failure, timeout, or import error.
@@ -57,10 +65,19 @@ class LinkedInClient:
             ) from exc
 
         client = ApifyClient(token=self._api_token)
-        run_input = {
+        run_input: dict = {
             "searchQuery": search_query,
             "maxResults": self._max_results,
         }
+        if profile is not None:
+            if profile.linkedin_location:
+                run_input["location"] = profile.linkedin_location
+            dp = (profile.linkedin_date_posted or "all").strip().lower()
+            if dp and dp != "all":
+                run_input["datePosted"] = profile.linkedin_date_posted.strip()
+            sb = (profile.linkedin_sort_by or "").strip()
+            if sb:
+                run_input["sortBy"] = sb
 
         try:
             run = client.actor(_ACTOR_ID).call(
@@ -120,6 +137,9 @@ def _map_item(item: dict) -> JobDict | None:
     description_raw = item.get("descriptionText") or item.get("description") or ""
     snippet = description_raw[:500]
 
+    posted = item.get("postedAt") or item.get("posted_at") or ""
+    scraped = item.get("scrapedAt") or item.get("scraped_at") or ""
+
     return JobDict(
         id=f"linkedin:{raw_id}",
         title=title,
@@ -128,6 +148,8 @@ def _map_item(item: dict) -> JobDict | None:
         source="linkedin",
         description_snippet=snippet,
         location=item.get("location") or "",
+        source_posted_at=str(posted) if posted else "",
+        source_scraped_at=str(scraped) if scraped else "",
     )
 
 

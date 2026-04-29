@@ -9,7 +9,7 @@ Sheets set up continue to work normally.
 
 Column layout in the Sheet:
   job_id | title | company | location | url | score | source | discovered_date
-  | new | status | notes | resume_note | cover_letter
+  | source_posted_at | new | status | notes | resume_note | cover_letter | score_rationale
 
   status, notes, resume_note, cover_letter are never overwritten by the pipeline.
 """
