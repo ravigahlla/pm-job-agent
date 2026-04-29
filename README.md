@@ -41,8 +41,8 @@ flowchart TB
 
   subgraph run [pm-job-agent_run]
     loadBg[Load_background_into_state]
-    gather[Discover_jobs_Greenhouse_LinkedIn]
-    rank[Score_each_role_vs_you]
+    gather["Discover: Greenhouse, Lever,\nLinkedIn; strict location +\nfresh max-age gate"]
+    rank["Score vs career context\n(boost recent listings in-window)"]
     dedup[Deduplicate_vs_seen_jobs]
     digest[LLM_digest]
     persist[Write_CSV_new_col_update_seen_jobs]
@@ -63,7 +63,7 @@ flowchart TB
   writeContext --> writeEnv
   writeEnv --> loadBg
   loadBg --> gather
-  gather --> rank
+  gather -->|"eligible jobs"| rank
   rank --> dedup
   dedup --> digest
   digest --> persist
@@ -74,6 +74,8 @@ flowchart TB
   readFlagged --> genDocs
   genDocs --> writeBack
 ```
+
+Discovery applies configurable location rules and a freshness cutoff before scoring; scoring then ranks by semantic fit with a configurable recency preference for listings inside the freshness window. Config: `search_profile.yaml` (`freshness_max_days`, `freshness_boost_under_hours`, location list / `location_filter`).
 
 ## Setup
 
@@ -378,7 +380,7 @@ flowchart LR
 
   p1 --- s1["Greenhouse + Lever + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
 
-  p2 --- s2["LLM semantic scoring (scoring-v2)\nPersonalised rubric injection\nEval + human scoring workflow\nGreenhouse 404 handling\nLinkedIn query tightening\n(company, title) dedup\nMin description length filter\nLever integration"]
+  p2 --- s2["LLM semantic scoring (scoring-v2)\nPersonalised rubric injection\nEval + human scoring workflow\nGreenhouse 404 handling\nLinkedIn query tightening\n(company, title) dedup\nMin description length filter\nLever integration\nFreshness cutoff + CSV audit columns\nConfigurable location filtering"]
 
   p3 --- s3["Explainability: why a role scored highly\nApplication memory + outcome tracking\nPredictive company intelligence\nFunding signals → proactive outreach"]
 
