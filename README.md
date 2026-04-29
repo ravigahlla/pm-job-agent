@@ -121,6 +121,21 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 4. Restore `private/` and fill in `.env` with real secrets.
 5. `source .venv/bin/activate` and run `pytest`.
 
+**New machine / fresh clone checklist (fast path)**
+
+This repo intentionally does **not** store secrets or personal context in Git. Keep a secure backup of your `.env` and `private/` folder (password manager or encrypted storage), then use this checklist:
+
+1. `git clone ... && cd pm-job-agent`
+2. Restore:
+   - `.env` (or `cp .env.example .env` then fill keys)
+   - `private/agent-context.md`
+   - `private/search_profile.yaml`
+   - optional `private/scoring_criteria.md`
+   - optional `private/service_account.json` (Sheets)
+3. `./scripts/bootstrap.sh`
+4. `source .venv/bin/activate`
+5. Smoke test (cheap, no paid LLM): `pm-job-agent run --provider stub`
+
 ### Configuration
 
 1. **Environment variables** — copy the template and edit locally:
