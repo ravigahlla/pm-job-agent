@@ -5,7 +5,8 @@ ranked_jobs is empty — so every run produces a record on disk.
 
 Column order is optimised for reviewing in a spreadsheet:
   score, score_rationale, flagged, new, title, company, location, url, source,
-  source_posted_at, id, description_snippet, resume_note, cover_letter
+  source_posted_at, freshness_age_hours, freshness_basis, id, description_snippet,
+  resume_note, cover_letter
 
   ``source_posted_at`` is filled when the job source provides it (e.g. LinkedIn relative
   ``postedAt`` from Apify). It is not the same as ``discovered_date`` in Google Sheets
@@ -34,7 +35,8 @@ logger = logging.getLogger(__name__)
 
 _COLUMNS = [
     "score", "score_rationale", "flagged", "new", "title", "company", "location", "url",
-    "source", "source_posted_at", "id", "description_snippet", "resume_note", "cover_letter",
+    "source", "source_posted_at", "freshness_age_hours", "freshness_basis", "id",
+    "description_snippet", "resume_note", "cover_letter",
 ]
 
 

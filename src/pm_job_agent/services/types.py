@@ -21,6 +21,10 @@ class JobDict(_JobDictBase, total=False):
     source_posted_at: str
     # ISO timestamp from the scraper, when provided.
     source_scraped_at: str
+    # Normalized age in hours used by freshness filtering/ranking.
+    freshness_age_hours: float
+    # Where freshness_age_hours came from: source_posted_at | first_seen | unknown.
+    freshness_basis: str
 
 
 class _RankedJobDictBase(JobDict):

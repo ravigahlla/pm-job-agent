@@ -216,7 +216,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
      - "Senior PM AI"
    ```
 
-   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800` for past week), and `linkedin_sort_by` tune the LinkedIn actor. The run CSV includes `source_posted_at` when the source provides it (for example LinkedIn’s relative “posted” text from Apify). In Sheets, `discovered_date` is the first day this pipeline appended that `job_id`, not the employer’s original post date — compare with `source_posted_at` when present. Without this file, discovery returns zero jobs.
+   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800` for past week), and `linkedin_sort_by` tune the LinkedIn actor. `freshness_max_days` (default `5`) hard-filters older roles after discovery; `freshness_boost_under_hours` (default `24`) prefers very recent roles in ranking (`<=` boundary). The run CSV includes `source_posted_at` when the source provides it (for example LinkedIn’s relative “posted” text from Apify), `freshness_age_hours` (normalized age in hours), and `freshness_basis` (`source_posted_at` vs `first_seen` fallback). In Sheets, `discovered_date` is the first day this pipeline appended that `job_id`, not the employer’s original post date — compare with `source_posted_at` when present. Without this file, discovery returns zero jobs.
 
 ## Usage
 
@@ -226,7 +226,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 pm-job-agent run
 ```
 
-Runs discovery (Greenhouse + Lever + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with a `flagged` column (empty by default). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
+Runs discovery (Greenhouse + Lever + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with review columns (`flagged`) and freshness audit columns (`source_posted_at`, `freshness_age_hours`, `freshness_basis`). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
 
 ```bash
 pm-job-agent run --json   # print full graph state as JSON (includes agent_context — treat as sensitive)

@@ -213,7 +213,15 @@ def make_score_node(llm: LLMClient) -> Callable[[CoreLoopState], dict]:
             _score_single(job, profile, llm, context_excerpt, scoring_system=scoring_system)
             for job in jobs
         ]
-        ranked.sort(key=lambda j: j["score"], reverse=True)
+        # Prefer very fresh roles (<=24h by default) while preserving score ordering.
+        freshness_boost_hours = float(profile.freshness_boost_under_hours)
+        ranked.sort(
+            key=lambda j: (
+                1 if (j.get("freshness_age_hours", 10e9) <= freshness_boost_hours) else 0,
+                j["score"],
+            ),
+            reverse=True,
+        )
 
         # Count LLM-scored jobs: those whose rationale doesn't contain fallback/pre-filter phrases.
         pre_filtered_phrases = ("fallback score used", "no include keywords", "excluded by keyword")

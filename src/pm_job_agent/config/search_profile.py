@@ -52,6 +52,12 @@ class SearchProfile:
     # Actor `sortBy`: "DD" = newest first, "R" = relevance (actor default).
     linkedin_sort_by: str = "DD"
 
+    # Hard freshness gate for discovery: drop jobs older than this many days.
+    freshness_max_days: int = 5
+
+    # Recency preference in ranking: jobs fresher than this threshold are boosted.
+    freshness_boost_under_hours: int = 24
+
     # Lever board slugs to query (one per target company, e.g. "notion", "ramp").
     # Find a company's slug at the end of their Lever board URL:
     #   https://jobs.lever.co/<slug>/
@@ -109,5 +115,7 @@ def load_search_profile(path: Path) -> SearchProfile:
         linkedin_location=(raw.get("linkedin_location") or "").strip(),
         linkedin_date_posted=(raw.get("linkedin_date_posted") or "r604800").strip(),
         linkedin_sort_by=(raw.get("linkedin_sort_by") or "DD").strip(),
+        freshness_max_days=int(raw.get("freshness_max_days") or 5),
+        freshness_boost_under_hours=int(raw.get("freshness_boost_under_hours") or 24),
         lever_board_tokens=raw.get("lever_board_tokens") or [],
     )

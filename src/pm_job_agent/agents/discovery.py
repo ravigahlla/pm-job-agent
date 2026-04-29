@@ -31,6 +31,8 @@ from pm_job_agent.graphs.state import CoreLoopState
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
 from pm_job_agent.integrations.lever import LeverClient, LeverError
 from pm_job_agent.integrations.linkedin import LinkedInClient, LinkedInError
+from pm_job_agent.services.freshness import resolve_freshness
+from pm_job_agent.services.seen_jobs import load_seen
 from pm_job_agent.services.types import JobDict
 
 logger = logging.getLogger(__name__)
@@ -138,4 +140,30 @@ def discover_jobs(_: CoreLoopState) -> dict:
     if dropped_loc:
         logger.info("Removed %d job(s) by strict location filter.", dropped_loc)
 
-    return {"jobs": location_kept}
+    # Freshness gate: keep <= freshness_max_days, using first-seen fallback when source
+    # does not provide posted age.
+    seen_map = load_seen(settings.seen_jobs_path, ttl_days=settings.seen_jobs_ttl_days)
+    max_age_hours = float(profile.freshness_max_days * 24)
+    freshness_kept: list[JobDict] = []
+    for job in location_kept:
+        age_hours, basis = resolve_freshness(job, seen_map)
+        enriched = {**job, "freshness_age_hours": age_hours, "freshness_basis": basis}
+        if age_hours <= max_age_hours:
+            freshness_kept.append(enriched)
+        else:
+            logger.debug(
+                "Excluded by freshness gate (> %s days): %s age=%.1fh basis=%s",
+                profile.freshness_max_days,
+                job.get("id"),
+                age_hours,
+                basis,
+            )
+    dropped_fresh = len(location_kept) - len(freshness_kept)
+    if dropped_fresh:
+        logger.info(
+            "Removed %d job(s) older than %d day(s).",
+            dropped_fresh,
+            profile.freshness_max_days,
+        )
+
+    return {"jobs": freshness_kept}

@@ -322,6 +322,41 @@ class TestMakeScoreNode(object):
         result = node({"jobs": [], "agent_context": ""})
         assert result["ranked_jobs"] == []
 
+    def test_node_prefers_at_or_under_24h_jobs_in_sort_order(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(tmp_path / "profile.yaml"))
+        (tmp_path / "profile.yaml").write_text(
+            "freshness_boost_under_hours: 24\n",
+            encoding="utf-8",
+        )
+        get_settings.cache_clear()
+
+        class StableLlm:
+            def generate(self, user_prompt: str, *, system_prompt: str = "") -> str:
+                return json.dumps({"score": 0.5, "rationale": "Equal fit"})
+
+        node = make_score_node(StableLlm())
+        result = node(
+            {
+                "agent_context": "",
+                "jobs": [
+                    {
+                        "id": "fresh", "title": "Fresh", "company": "Co",
+                        "url": "https://a.com", "source": "test", "description_snippet": "",
+                        "freshness_age_hours": 24.0,
+                    },
+                    {
+                        "id": "older", "title": "Older", "company": "Co",
+                        "url": "https://b.com", "source": "test", "description_snippet": "",
+                        "freshness_age_hours": 48.0,
+                    },
+                ],
+            }
+        )
+        ranked = result["ranked_jobs"]
+        assert ranked[0]["id"] == "fresh"
+
 
 # ---------------------------------------------------------------------------
 # _build_scoring_system — criteria injection

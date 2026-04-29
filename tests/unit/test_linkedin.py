@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import json
+from datetime import date, timedelta
 
 import pytest
 
@@ -389,6 +391,94 @@ class TestDiscoveryLinkedInBranch:
 
         assert result["jobs"] == []
 
+    def test_freshness_gate_drops_jobs_older_than_five_days(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        profile_yaml = tmp_path / "profile.yaml"
+        profile_yaml.write_text(
+            "linkedin_search_queries:\n  - 'Product Manager'\n"
+            "freshness_max_days: 5\n",
+            encoding="utf-8",
+        )
+        seen_path = tmp_path / "seen.json"
+        seen_path.write_text("{}", encoding="utf-8")
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(profile_yaml))
+        monkeypatch.setenv("SEEN_JOBS_PATH", str(seen_path))
+        monkeypatch.setenv("APIFY_API_TOKEN", "fake-token")
+        get_settings.cache_clear()
+
+        items = [
+            {
+                "title": "Old PM",
+                "company": "OldCo",
+                "location": "Remote",
+                "jobUrl": "https://www.linkedin.com/jobs/view/1111",
+                "description": "AI role",
+                "postedAt": "6 days ago",
+            },
+            {
+                "title": "Fresh PM",
+                "company": "FreshCo",
+                "location": "Remote",
+                "jobUrl": "https://www.linkedin.com/jobs/view/2222",
+                "description": "AI role",
+                "postedAt": "4 days ago",
+            },
+        ]
+        mock_apify = _make_apify_client_mock(items)
+
+        from pm_job_agent.agents.discovery import discover_jobs
+
+        with patch("apify_client.ApifyClient", return_value=mock_apify):
+            result = discover_jobs({})
+
+        assert len(result["jobs"]) == 1
+        assert result["jobs"][0]["id"] == "linkedin:2222"
+
+    def test_unknown_source_posted_uses_first_seen_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        profile_yaml = tmp_path / "profile.yaml"
+        profile_yaml.write_text(
+            "linkedin_search_queries:\n  - 'Product Manager'\n"
+            "freshness_max_days: 5\n",
+            encoding="utf-8",
+        )
+        seen_path = tmp_path / "seen.json"
+        old_seen = (date.today() - timedelta(days=10)).isoformat()
+        seen_path.write_text(json.dumps({"linkedin:3333": old_seen}), encoding="utf-8")
+        monkeypatch.setenv("SEARCH_PROFILE_PATH", str(profile_yaml))
+        monkeypatch.setenv("SEEN_JOBS_PATH", str(seen_path))
+        monkeypatch.setenv("APIFY_API_TOKEN", "fake-token")
+        get_settings.cache_clear()
+
+        items = [
+            {
+                "title": "Known Old PM",
+                "company": "SeenCo",
+                "location": "Remote",
+                "jobUrl": "https://www.linkedin.com/jobs/view/3333",
+                "description": "AI role",
+            },
+            {
+                "title": "New Unknown PM",
+                "company": "NewCo",
+                "location": "Remote",
+                "jobUrl": "https://www.linkedin.com/jobs/view/4444",
+                "description": "AI role",
+            },
+        ]
+        mock_apify = _make_apify_client_mock(items)
+
+        from pm_job_agent.agents.discovery import discover_jobs
+
+        with patch("apify_client.ApifyClient", return_value=mock_apify):
+            result = discover_jobs({})
+
+        ids = {j["id"] for j in result["jobs"]}
+        assert "linkedin:3333" not in ids
+        assert "linkedin:4444" in ids
+
 
 # ---------------------------------------------------------------------------
 # SearchProfile: linkedin_search_queries loads from YAML
@@ -434,3 +524,5 @@ class TestSearchProfileLinkedIn:
         assert profile.linkedin_location == "Austin, TX"
         assert profile.linkedin_date_posted == "r2592000"
         assert profile.linkedin_sort_by == "R"
+        assert profile.freshness_max_days == 5
+        assert profile.freshness_boost_under_hours == 24
