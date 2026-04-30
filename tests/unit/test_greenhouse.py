@@ -9,8 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pm_job_agent.agents.scoring import _keyword_score, _passes_pre_filter
-from pm_job_agent.config.search_profile import SearchProfile, load_search_profile
+from pm_job_agent.config.search_profile import EmployerBoards, SearchProfile, load_search_profile
 from pm_job_agent.integrations.greenhouse import GreenhouseClient, GreenhouseError
+from pm_job_agent.integrations.lever import LeverClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,6 +91,14 @@ class TestGreenhouseClientFetchJobs:
         assert "<p>" not in job["description_snippet"]
         assert "AI" in job["description_snippet"]
 
+    def test_company_label_overrides_company_field(self) -> None:
+        with patch("httpx.get", return_value=_mock_response(200, _SAMPLE_JOBS_PAYLOAD)):
+            client = GreenhouseClient()
+            jobs = client.fetch_jobs(
+                "testco", title_keywords=["Senior Product Manager"], company_label="Test Co"
+            )
+        assert jobs[0]["company"] == "Test Co"
+
     def test_empty_jobs_list(self) -> None:
         with patch("httpx.get", return_value=_mock_response(200, {"jobs": []})):
             client = GreenhouseClient()
@@ -101,6 +110,31 @@ class TestGreenhouseClientFetchJobs:
 # ---------------------------------------------------------------------------
 # GreenhouseClient: error cases
 # ---------------------------------------------------------------------------
+
+class TestLeverClientCompanyLabel:
+    def test_company_label_overrides_api_company_field(self) -> None:
+        payload = [
+            {
+                "id": "uuid-1",
+                "text": "Product Manager",
+                "hostedUrl": "https://jobs.lever.co/acme/job",
+                "company": "From API Payload",
+                "categories": {"location": "Remote"},
+                "description": "<p>AI</p>",
+            }
+        ]
+        mock = MagicMock()
+        mock.status_code = 200
+        mock.json.return_value = payload
+        with patch("httpx.get", return_value=mock):
+            client = LeverClient()
+            jobs = client.fetch_jobs(
+                "acme-lever-slug",
+                ["Product Manager"],
+                company_label="Lever Display Name",
+            )
+        assert jobs[0]["company"] == "Lever Display Name"
+
 
 class TestGreenhouseClientErrors:
     def test_raises_greenhouse_error_on_404(self) -> None:
@@ -138,6 +172,8 @@ exclude_keywords:
 greenhouse_board_tokens:
   - anthropic
   - linear
+ashby_board_names:
+  - ashby-sample
 """
         profile_path = tmp_path / "search_profile.yaml"
         profile_path.write_text(yaml_content, encoding="utf-8")
@@ -148,11 +184,66 @@ greenhouse_board_tokens:
         assert profile.include_keywords == ["AI", "SaaS"]
         assert profile.exclude_keywords == ["Intern"]
         assert profile.greenhouse_board_tokens == ["anthropic", "linear"]
+        assert profile.ashby_board_names == ["ashby-sample"]
+        assert profile.target_employers == [
+            EmployerBoards(name="anthropic", greenhouse="anthropic"),
+            EmployerBoards(name="linear", greenhouse="linear"),
+            EmployerBoards(name="ashby-sample", ashby="ashby-sample"),
+        ]
+
+    def test_explicit_target_employers_ignores_legacy_board_lists(
+        self, tmp_path: Path
+    ) -> None:
+        yaml_content = """
+target_employers:
+  - name: Acme Corp
+    greenhouse: acme-public
+greenhouse_board_tokens:
+  - should-not-merge
+"""
+        profile_path = tmp_path / "search_profile.yaml"
+        profile_path.write_text(yaml_content, encoding="utf-8")
+        profile = load_search_profile(profile_path)
+
+        assert profile.target_employers == [
+            EmployerBoards(name="Acme Corp", greenhouse="acme-public"),
+        ]
+        assert profile.greenhouse_board_tokens == ["acme-public"]
+
+    def test_single_row_can_list_multiple_ats_keys(self, tmp_path: Path) -> None:
+        yaml_content = """
+target_employers:
+  - name: DualBoard Co
+    greenhouse: dual-gh
+    ashby: dual-ashby
+"""
+        profile_path = tmp_path / "search_profile.yaml"
+        profile_path.write_text(yaml_content, encoding="utf-8")
+        profile = load_search_profile(profile_path)
+        assert profile.target_employers == [
+            EmployerBoards(name="DualBoard Co", greenhouse="dual-gh", ashby="dual-ashby"),
+        ]
+        assert profile.greenhouse_board_tokens == ["dual-gh"]
+        assert profile.ashby_board_names == ["dual-ashby"]
+
+    def test_empty_target_employers_falls_back_to_legacy(self, tmp_path: Path) -> None:
+        yaml_content = """
+target_employers: []
+greenhouse_board_tokens:
+  - legacyco
+"""
+        profile_path = tmp_path / "search_profile.yaml"
+        profile_path.write_text(yaml_content, encoding="utf-8")
+        profile = load_search_profile(profile_path)
+        assert profile.target_employers == [
+            EmployerBoards(name="legacyco", greenhouse="legacyco"),
+        ]
 
     def test_missing_file_returns_empty_profile(self, tmp_path: Path) -> None:
         profile = load_search_profile(tmp_path / "nonexistent.yaml")
         assert profile.target_titles == []
         assert profile.greenhouse_board_tokens == []
+        assert profile.target_employers == []
 
     def test_empty_yaml_returns_empty_profile(self, tmp_path: Path) -> None:
         profile_path = tmp_path / "search_profile.yaml"

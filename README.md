@@ -1,6 +1,6 @@
 # pm-job-agent
 
-Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + Lever + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
+Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + Lever + Ashby + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
 
 ## Contents
 
@@ -23,7 +23,7 @@ Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhou
 
 **What runs today:** A two-step workflow:
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards, Lever boards, and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards, Lever boards, Ashby-hosted boards, and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
 2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
 
 LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
@@ -41,7 +41,7 @@ flowchart TB
 
   subgraph run [pm-job-agent_run]
     loadBg[Load_background_into_state]
-    gather["Discover: Greenhouse, Lever,\nLinkedIn; strict location +\nfresh max-age gate"]
+    gather["Discover: Greenhouse, Lever, Ashby,\nLinkedIn; strict location +\nfresh max-age gate"]
     rank["Score vs career context\n(boost recent listings in-window)"]
     dedup[Deduplicate_vs_seen_jobs]
     digest[LLM_digest]
@@ -75,7 +75,7 @@ flowchart TB
   genDocs --> writeBack
 ```
 
-Discovery applies configurable location rules and a freshness cutoff before scoring; scoring then ranks by semantic fit with a configurable recency preference for listings inside the freshness window. Config: `search_profile.yaml` (`freshness_max_days`, `freshness_boost_under_hours`, location list / `location_filter`).
+Discovery applies configurable location rules and a freshness cutoff before scoring; scoring then ranks by semantic fit with a configurable recency preference for listings inside the freshness window. Board targets (`target_employers` plus LinkedIn queries) live in `search_profile.yaml`; also configurable: `freshness_max_days`, `freshness_boost_under_hours`, location list / `location_filter`.
 
 ## Setup
 
@@ -110,7 +110,7 @@ This creates `.venv` if missing, upgrades `pip`, runs `pip install -e ".[dev]"`,
 
 | Path / item | What to do |
 |-------------|------------|
-| `private/` | Not in Git. Three files matter: `agent-context.md` (career context for scoring/generation), `search_profile.yaml` (keywords, board tokens, LinkedIn queries), and `scoring_criteria.md` (optional personalised scoring rubric injected into the LLM system prompt). Without `agent-context.md` and `search_profile.yaml`, discovery returns zero jobs but the run does not crash. |
+| `private/` | Not in Git. Three files matter: `agent-context.md` (career context for scoring/generation), `search_profile.yaml` (targets, optional `target_employers`, LinkedIn queries), and `scoring_criteria.md` (optional personalised scoring rubric injected into the LLM system prompt). Without `agent-context.md` and `search_profile.yaml`, discovery returns zero jobs but the run does not crash. |
 | `.env` | Not in Git. Run `./scripts/bootstrap.sh` to create from `.env.example`, then fill in real keys. |
 | `.venv/` | Not in Git. Run `./scripts/bootstrap.sh` or `pip install -e ".[dev]"` manually. |
 | `outputs/` | Gitignored. Created automatically on first run. |
@@ -164,7 +164,7 @@ This repo intentionally does **not** store secrets or personal context in Git. K
    APIFY_API_TOKEN=apify_api_xxxxxxxxxxxx
    ```
 
-   Without this key, LinkedIn discovery is silently skipped; Greenhouse and Lever run normally (no API key required for either).
+   Without this key, LinkedIn discovery is silently skipped; Greenhouse, Lever, and Ashby posting APIs still run normally (no API key required).
 
 4. **Email digest (optional)** — after each run, the pipeline can send a formatted HTML email with the top-N scored jobs and the LLM digest summary. Requires a Gmail App Password (not your account password):
 
@@ -224,16 +224,27 @@ This repo intentionally does **not** store secrets or personal context in Git. K
    exclude_keywords:
      - "Intern"
 
-   greenhouse_board_tokens:
-     - anthropic
-     - linear
+   # Preferred: one row per employer — set only the ATS slugs that company uses.
+   target_employers:
+     - name: Anthropic
+       greenhouse: anthropic
+     - name: Notion
+       lever: notion
+     - name: Example Co
+       ashby: example-co
 
    linkedin_search_queries:
      - "AI Product Manager"
      - "Senior PM AI"
    ```
 
-   `greenhouse_board_tokens` are the slugs at the end of `boards.greenhouse.io/<token>` URLs. `lever_board_tokens` are the slugs at the end of `jobs.lever.co/<slug>` URLs — no API key required. `linkedin_search_queries` are sent directly to LinkedIn Jobs search — be specific for better results. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800` for past week), and `linkedin_sort_by` tune the LinkedIn actor. `freshness_max_days` (default `5`) hard-filters older roles after discovery; `freshness_boost_under_hours` (default `24`) prefers very recent roles in ranking (`<=` boundary). The run CSV includes `source_posted_at` when the source provides it (for example LinkedIn’s relative “posted” text from Apify), `freshness_age_hours` (normalized age in hours), and `freshness_basis` (`source_posted_at` vs `first_seen` fallback). In Sheets, `discovered_date` is the first day this pipeline appended that `job_id`, not the employer’s original post date — compare with `source_posted_at` when present. Without this file, discovery returns zero jobs.
+   **Board slugs:** `greenhouse` values are tokens from `boards.greenhouse.io/<token>/`. `lever` values are slugs from `jobs.lever.co/<slug>/`. `ashby` values are job board names from `jobs.ashbyhq.com/<name>/` ([Ashby posting API](https://developers.ashbyhq.com/docs/public-job-posting-api)). All three ATS reads are unauthenticated. Each row needs at least one of `greenhouse`, `lever`, or `ashby`. `name` is written to CSV/Sheet `company` (omit it and the first slug is used as the label). Optionally list multiple ATS keys on the same row if the employer posts duplicates you want to collapse under one name.
+
+   **Backward compatibility:** if `target_employers` is missing or empty, the loader falls back to separate `greenhouse_board_tokens`, `lever_board_tokens`, and `ashby_board_names` lists (same behavior as before). If `target_employers` is **non-empty**, those legacy three keys are **ignored** for discovery — drop them from YAML or Actions `SEARCH_PROFILE_YAML` after migrating to avoid confusion.
+
+   There is still no global “all companies” feed — you curate employers yourself. Same role on multiple sources collapses via `(company, title)` dedup once `name` aligns. Ashby exposes ISO `publishedAt` as CSV `source_posted_at`; freshness resolves ISO and LinkedIn relative strings.
+
+   **`linkedin_search_queries`** are keyword searches (different model from board slugs) — be specific. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800`), and `linkedin_sort_by` tune the LinkedIn actor. `freshness_max_days` (default `5`) hard-filters older roles; `freshness_boost_under_hours` (default `24`) prefers recent roles in ranking (`<=` boundary). The run CSV includes `source_posted_at`, `freshness_age_hours`, and `freshness_basis`. In Sheets, `discovered_date` is pipeline first-seen, not the employer’s post date — compare with `source_posted_at`. Without meaningful board + LinkedIn config, discovery returns few or no jobs.
 
 ## Usage
 
@@ -243,7 +254,7 @@ This repo intentionally does **not** store secrets or personal context in Git. K
 pm-job-agent run
 ```
 
-Runs discovery (Greenhouse + Lever + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with review columns (`flagged`) and freshness audit columns (`source_posted_at`, `freshness_age_hours`, `freshness_basis`). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
+Runs discovery (Greenhouse + Lever + Ashby + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with review columns (`flagged`) and freshness audit columns (`source_posted_at`, `freshness_age_hours`, `freshness_basis`). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
 
 ```bash
 pm-job-agent run --json   # print full graph state as JSON (includes agent_context — treat as sensitive)
@@ -322,7 +333,7 @@ Inside `src/pm_job_agent/`:
 | `graphs/` | LangGraph compile (`build_core_loop_graph`) |
 | `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
 | `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
-| `integrations/` | `greenhouse.py`: Greenhouse board client. `lever.py`: Lever board client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
+| `integrations/` | `greenhouse.py`: Greenhouse board client. `lever.py`: Lever board client. `ashby.py`: Ashby posting API client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
 | `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
 
 ## Automated daily runs
@@ -378,7 +389,7 @@ flowchart LR
 
   p1 --> p2 --> p3 --> p4
 
-  p1 --- s1["Greenhouse + Lever + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
+  p1 --- s1["Greenhouse + Lever + Ashby + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
 
   p2 --- s2["LLM semantic scoring (scoring-v2)\nPersonalised rubric injection\nEval + human scoring workflow\nGreenhouse 404 handling\nLinkedIn query tightening\n(company, title) dedup\nMin description length filter\nLever integration\nFreshness cutoff + CSV audit columns\nConfigurable location filtering"]
 

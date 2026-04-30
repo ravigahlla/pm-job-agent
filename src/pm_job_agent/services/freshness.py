@@ -3,9 +3,31 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 
 from pm_job_agent.services.types import JobDict
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def parse_iso8601_posted_age_hours(source_posted_at: str) -> float | None:
+    """Age in hours from an ISO-like publish time (e.g. Ashby ``publishedAt``)."""
+    raw = (source_posted_at or "").strip()
+    if not raw:
+        return None
+    try:
+        s = raw
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = _utc_now() - dt.astimezone(timezone.utc)
+        return max(delta.total_seconds() / 3600.0, 0.0)
+    except ValueError:
+        return None
 
 _HOUR_RE = re.compile(r"^\s*(\d+)\s+hours?\s+ago\s*$", re.IGNORECASE)
 _DAY_RE = re.compile(r"^\s*(\d+)\s+days?\s+ago\s*$", re.IGNORECASE)
@@ -37,7 +59,10 @@ def parse_source_posted_age_hours(source_posted_at: str) -> float | None:
 
 def resolve_freshness(job: JobDict, seen: dict[str, str]) -> tuple[float, str]:
     """Return (age_hours, basis) using source_posted_at first, then first_seen fallback."""
-    parsed = parse_source_posted_age_hours(job.get("source_posted_at", ""))
+    posted = job.get("source_posted_at", "") or ""
+    parsed = parse_source_posted_age_hours(posted)
+    if parsed is None:
+        parsed = parse_iso8601_posted_age_hours(posted)
     if parsed is not None:
         return parsed, "source_posted_at"
 

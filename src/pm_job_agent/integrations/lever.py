@@ -35,7 +35,13 @@ class LeverClient:
     def __init__(self, timeout: float = 10.0) -> None:
         self._timeout = timeout
 
-    def fetch_jobs(self, board_token: str, title_keywords: list[str]) -> list[JobDict]:
+    def fetch_jobs(
+        self,
+        board_token: str,
+        title_keywords: list[str],
+        *,
+        company_label: str | None = None,
+    ) -> list[JobDict]:
         """Return jobs from one company board that match any title keyword.
 
         Args:
@@ -77,7 +83,7 @@ class LeverClient:
             )
 
         return [
-            _map_job(job, board_token)
+            _map_job(job, board_token, company_label=company_label)
             for job in raw_jobs
             if _title_matches(job.get("text", ""), title_keywords)
         ]
@@ -91,14 +97,19 @@ def _title_matches(title: str, keywords: list[str]) -> bool:
     return any(kw.lower() in title_lower for kw in keywords)
 
 
-def _map_job(raw: dict, board_token: str) -> JobDict:
+def _map_job(
+    raw: dict, board_token: str, *, company_label: str | None = None
+) -> JobDict:
     """Map a Lever posting object to the internal JobDict schema."""
     categories = raw.get("categories") or {}
     description_html = raw.get("description") or raw.get("descriptionPlain") or ""
     snippet = _strip_html(description_html)[:500]
 
-    # Lever company name is sometimes in the posting; fall back to the board slug.
-    company = raw.get("company") or board_token
+    # Prefer unified profile label, then Lever payload company, then board slug.
+    if company_label:
+        company = company_label
+    else:
+        company = raw.get("company") or board_token
 
     return JobDict(
         id=f"lever:{board_token}:{raw['id']}",

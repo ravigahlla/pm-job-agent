@@ -1,5 +1,7 @@
 """Compile the discover → score → deduplicate → digest → persist → sync_sheets → notify pipeline.
 
+Discovery aggregates Greenhouse, Lever, Ashby (when configured), and LinkedIn (when Apify is set).
+
 Document generation is intentionally absent from this graph. Run
 `pm-job-agent generate <csv>` after reviewing the output CSV to generate
 tailored documents for only the roles you flag.

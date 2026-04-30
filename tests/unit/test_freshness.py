@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from unittest.mock import patch
 
-from pm_job_agent.services.freshness import parse_source_posted_age_hours, resolve_freshness
+from pm_job_agent.services.freshness import (
+    parse_iso8601_posted_age_hours,
+    parse_source_posted_age_hours,
+    resolve_freshness,
+)
 
 
 def _job(job_id: str, source_posted_at: str = "") -> dict:
@@ -34,10 +39,27 @@ class TestParseSourcePostedAgeHours:
         assert parse_source_posted_age_hours("30+ days ago") is None
 
 
+class TestParseIso8601PostedAgeHours:
+    def test_parses_offset_and_z_suffix(self) -> None:
+        fixed_now = datetime(2026, 1, 3, 12, 0, 0, tzinfo=timezone.utc)
+        with patch("pm_job_agent.services.freshness._utc_now", return_value=fixed_now):
+            assert parse_iso8601_posted_age_hours("2026-01-01T12:00:00+00:00") == 48.0
+            assert parse_iso8601_posted_age_hours("2026-01-02T12:00:00Z") == 24.0
+
+
 class TestResolveFreshness:
     def test_prefers_source_posted_at_when_parseable(self) -> None:
         age_hours, basis = resolve_freshness(_job("job:1", "3 days ago"), {})
         assert age_hours == 72.0
+        assert basis == "source_posted_at"
+
+    def test_prefers_iso_source_posted_at_when_relative_unparseable(self) -> None:
+        fixed_now = datetime(2026, 6, 3, 0, 0, 0, tzinfo=timezone.utc)
+        with patch("pm_job_agent.services.freshness._utc_now", return_value=fixed_now):
+            age_hours, basis = resolve_freshness(
+                _job("job:iso", "2026-06-01T00:00:00+00:00"), {}
+            )
+        assert age_hours == 48.0
         assert basis == "source_posted_at"
 
     def test_uses_first_seen_fallback_for_unknown_source_date(self) -> None:

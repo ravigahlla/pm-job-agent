@@ -30,7 +30,13 @@ class GreenhouseClient:
     def __init__(self, timeout: float = 10.0) -> None:
         self._timeout = timeout
 
-    def fetch_jobs(self, board_token: str, title_keywords: list[str]) -> list[JobDict]:
+    def fetch_jobs(
+        self,
+        board_token: str,
+        title_keywords: list[str],
+        *,
+        company_label: str | None = None,
+    ) -> list[JobDict]:
         """Return jobs from one company board that match any title keyword.
 
         Args:
@@ -57,7 +63,7 @@ class GreenhouseClient:
 
         raw_jobs = response.json().get("jobs") or []
         return [
-            _map_job(job, board_token)
+            _map_job(job, board_token, company_label=company_label)
             for job in raw_jobs
             if _title_matches(job.get("title", ""), title_keywords)
         ]
@@ -71,17 +77,18 @@ def _title_matches(title: str, keywords: list[str]) -> bool:
     return any(kw.lower() in title_lower for kw in keywords)
 
 
-def _map_job(raw: dict, board_token: str) -> JobDict:
+def _map_job(raw: dict, board_token: str, *, company_label: str | None = None) -> JobDict:
     """Map a Greenhouse job object to the internal JobDict schema."""
     location = raw.get("location") or {}
     content = raw.get("content") or ""
     # Greenhouse content is HTML; store a short plain-text snippet for scoring.
     snippet = _strip_html(content)[:500]
+    company = company_label if company_label else board_token
 
     return JobDict(
         id=f"greenhouse:{board_token}:{raw['id']}",
         title=raw.get("title") or "",
-        company=board_token,
+        company=company,
         url=raw.get("absolute_url") or "",
         source="greenhouse",
         description_snippet=snippet,
