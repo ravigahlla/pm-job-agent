@@ -66,7 +66,15 @@ class Settings(BaseSettings):
     gmail_sender: Optional[str] = None
     gmail_app_password: Optional[SecretStr] = None
     notify_email: Optional[str] = None
-    notify_top_n: int = Field(default=20, description="Max jobs to include in the email digest table.")
+    notify_top_n: int = Field(default=3, description="Max jobs to include in the email digest table.")
+    notify_high_score_min: float = Field(
+        default=0.80,
+        description="Minimum score for a 'highly relevant' role in email highlights.",
+    )
+    notify_next_score_min: float = Field(
+        default=0.50,
+        description="Minimum score for a 'next tier' role in email highlights.",
+    )
 
     default_llm_provider: str = Field(
         default="stub",

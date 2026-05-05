@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -50,7 +51,7 @@ class TestDeduplicateJobs:
     def test_filters_out_previously_seen_ids(self, tmp_path: Path) -> None:
         settings = _settings(tmp_path)
         seen_path = tmp_path / "seen_jobs.json"
-        seen_path.write_text(json.dumps({"job:1": "2026-03-01"}))
+        seen_path.write_text(json.dumps({"job:1": date.today().isoformat()}))
 
         state = {"ranked_jobs": [_job("job:1"), _job("job:2")]}
         result = deduplicate_jobs(state, settings=settings)
@@ -60,7 +61,8 @@ class TestDeduplicateJobs:
     def test_all_seen_returns_empty_list(self, tmp_path: Path) -> None:
         settings = _settings(tmp_path)
         seen_path = tmp_path / "seen_jobs.json"
-        seen_path.write_text(json.dumps({"job:1": "2026-03-01", "job:2": "2026-03-01"}))
+        today = date.today().isoformat()
+        seen_path.write_text(json.dumps({"job:1": today, "job:2": today}))
 
         state = {"ranked_jobs": [_job("job:1"), _job("job:2")]}
         result = deduplicate_jobs(state, settings=settings)

@@ -15,7 +15,9 @@ Gmail setup (one-time):
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 import smtplib
 from datetime import date
 from email.mime.multipart import MIMEMultipart
@@ -48,8 +50,31 @@ def send_digest_email(
     else:
         subject = f"[pm-job-agent] Nothing new today \u2013 {date.today().isoformat()}"
 
-    html = _build_html(new_jobs, all_job_count, digest, output_path, settings.notify_top_n)
-    plain = _build_plain(new_jobs, all_job_count, digest, output_path, settings.notify_top_n)
+    sheets_url = (
+        f"https://docs.google.com/spreadsheets/d/{settings.google_sheets_id}"
+        if settings.google_sheets_id
+        else ""
+    )
+    html = _build_html(
+        new_jobs,
+        all_job_count,
+        digest,
+        output_path,
+        top_n=settings.notify_top_n,
+        high_score_min=settings.notify_high_score_min,
+        next_score_min=settings.notify_next_score_min,
+        sheets_url=sheets_url,
+    )
+    plain = _build_plain(
+        new_jobs,
+        all_job_count,
+        digest,
+        output_path,
+        top_n=settings.notify_top_n,
+        high_score_min=settings.notify_high_score_min,
+        next_score_min=settings.notify_next_score_min,
+        sheets_url=sheets_url,
+    )
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -125,28 +150,32 @@ def _build_html(
     all_job_count: int,
     digest: str,
     output_path: str,
+    *,
     top_n: int,
+    high_score_min: float,
+    next_score_min: float,
+    sheets_url: str,
 ) -> str:
-    if new_jobs:
-        shown = min(top_n, len(new_jobs))
-        table_section = f"""
-<p>Showing {shown} of {len(new_jobs)} new role{'s' if len(new_jobs) != 1 else ''} (out of {all_job_count} discovered):</p>
-<table>
-  <thead>
-    <tr>
-      <th>#</th><th>Score</th><th>Role</th><th>Company</th><th>Location</th>
-    </tr>
-  </thead>
-  <tbody>
-{_job_rows_html(new_jobs[:top_n])}
-  </tbody>
-</table>"""
-    else:
-        table_section = (
-            f'<p style="color:#666;">No new roles found today — '
-            f"all {all_job_count} discovered job{'s' if all_job_count != 1 else ''} "
-            f"were already seen in a previous run.</p>"
-        )
+    summary_sentence = _first_sentence(digest)
+    highlights_section = _build_highlights_section_html(
+        new_jobs,
+        summary_sentence=summary_sentence,
+        top_n=top_n,
+        high_score_min=high_score_min,
+        next_score_min=next_score_min,
+    )
+    tracker_section = (
+        f'<p><a href="{html.escape(sheets_url)}">Click here for full list of roles</a></p>'
+        if sheets_url
+        else ""
+    )
+    nothing_new_section = (
+        f'<p style="color:#666;">No new roles found today — '
+        f"all {all_job_count} discovered job{'s' if all_job_count != 1 else ''} "
+        f"were already seen in a previous run.</p>"
+        if not new_jobs
+        else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -156,12 +185,11 @@ def _build_html(
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          color: #1a1a1a; max-width: 780px; margin: 0 auto; padding: 24px; }}
   h2 {{ color: #111; margin-bottom: 4px; }}
-  p.digest {{ background: #f5f5f5; border-left: 3px solid #888;
-              padding: 12px 16px; border-radius: 4px; }}
-  table {{ border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 14px; }}
-  th {{ background: #222; color: #fff; text-align: left; padding: 8px 10px; }}
-  td {{ padding: 7px 10px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }}
-  tr:hover td {{ background: #fafafa; }}
+  .digest {{ background: #f5f5f5; border-left: 3px solid #888;
+            padding: 12px 16px; border-radius: 4px; }}
+  .digest p {{ margin: 0 0 10px 0; }}
+  .digest p:last-child {{ margin-bottom: 0; }}
+  .digest ul {{ margin: 8px 0 0 18px; padding: 0; }}
   .score {{ font-weight: 600; text-align: center; }}
   a {{ color: #0066cc; text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
@@ -172,8 +200,9 @@ def _build_html(
 </head>
 <body>
 <h2>pm-job-agent &mdash; {date.today().isoformat()}</h2>
-<p class="digest">{digest}</p>
-{table_section}
+{highlights_section}
+{tracker_section}
+{nothing_new_section}
 <div class="footer">
   <p>CSV saved to: <code>{output_path}</code></p>
   <p>To generate tailored documents, open the CSV, set <code>flagged</code> to <code>yes</code>
@@ -184,22 +213,61 @@ def _build_html(
 </html>"""
 
 
-def _job_rows_html(jobs: list[RankedJobDict]) -> str:
-    rows = []
-    for i, job in enumerate(jobs, start=1):
-        url = job.get("url", "")
-        title = job.get("title", "")
-        link = f'<a href="{url}">{title}</a>' if url else title
-        rows.append(
-            f"    <tr>"
-            f'<td>{i}</td>'
-            f'<td class="score">{job.get("score", 0):.1f}</td>'
-            f"<td>{link}</td>"
-            f'<td>{job.get("company", "")}</td>'
-            f'<td>{job.get("location", "")}</td>'
-            f"</tr>"
+def _build_highlights_section_html(
+    new_jobs: list[RankedJobDict],
+    *,
+    summary_sentence: str,
+    top_n: int,
+    high_score_min: float,
+    next_score_min: float,
+) -> str:
+    high = [j for j in new_jobs if float(j.get("score", 0.0)) >= high_score_min]
+    next_tier = [
+        j
+        for j in new_jobs
+        if next_score_min <= float(j.get("score", 0.0)) < high_score_min
+    ]
+
+    section = [
+        '<h3 style="margin:16px 0 6px 0;">New highlights</h3>',
+        f"<p>{_render_markdownish_to_html(summary_sentence)}</p>",
+    ]
+
+    if not new_jobs:
+        return "\n".join(section)
+
+    def _role_list(items: list[RankedJobDict]) -> str:
+        parts: list[str] = []
+        for j in items[:top_n]:
+            url = html.escape(j.get("url", "") or "")
+            title = html.escape(j.get("title", "") or "")
+            company = html.escape(j.get("company", "") or "")
+            location = html.escape(j.get("location", "") or "") or "(location not specified)"
+            score = float(j.get("score", 0.0))
+            role = f'<a href="{url}"><strong>{title}</strong></a>' if url else f"<strong>{title}</strong>"
+            parts.append(
+                "<li>"
+                f"{role} — {company} — {html.escape(location)} — {score:.2f}"
+                "</li>"
+            )
+        return ("<ul>" + "".join(parts) + "</ul>") if parts else "<p style=\"color:#666;\">(none)</p>"
+
+    if high:
+        section.append(
+            f"<p><strong>Highly relevant roles</strong> (score ≥ {high_score_min:.2f}):</p>"
         )
-    return "\n".join(rows)
+        section.append(_role_list(high))
+    if next_tier:
+        section.append(
+            f"<p><strong>Next tier roles</strong> (score {next_score_min:.2f}–{high_score_min:.2f}):</p>"
+        )
+        section.append(_role_list(next_tier))
+    if not high and not next_tier:
+        section.append(
+            f"<p><strong>No new highly relevant roles found in this run.</strong> "
+            f"({len(new_jobs)} new total; below {next_score_min:.2f} score.)</p>"
+        )
+    return "\n".join(section)
 
 
 def _build_plain(
@@ -207,31 +275,36 @@ def _build_plain(
     all_job_count: int,
     digest: str,
     output_path: str,
+    *,
     top_n: int,
+    high_score_min: float,
+    next_score_min: float,
+    sheets_url: str,
 ) -> str:
+    summary_sentence = _first_sentence(digest)
     lines = [
         f"pm-job-agent — {date.today().isoformat()}",
         "",
-        digest,
+        "New highlights:",
+        summary_sentence,
         "",
     ]
-    if new_jobs:
-        shown = min(top_n, len(new_jobs))
+
+    lines += _build_tier_lists_plain(
+        new_jobs,
+        top_n=top_n,
+        high_score_min=high_score_min,
+        next_score_min=next_score_min,
+    )
+
+    if sheets_url:
+        lines += ["", f"Click here for full list of roles: {sheets_url}"]
+
+    if not new_jobs:
         lines += [
-            f"New roles: {shown} of {len(new_jobs)} new (out of {all_job_count} discovered):",
-            "-" * 60,
+            "",
+            f"Nothing new today — all {all_job_count} discovered jobs were already seen.",
         ]
-        for i, job in enumerate(new_jobs[:top_n], start=1):
-            lines.append(
-                f"{i:>2}. [{job.get('score', 0):.1f}] {job.get('title', '')} "
-                f"@ {job.get('company', '')} — {job.get('location', '')}"
-            )
-            if job.get("url"):
-                lines.append(f"     {job['url']}")
-    else:
-        lines.append(
-            f"Nothing new today — all {all_job_count} discovered jobs were already seen."
-        )
 
     lines += [
         "",
@@ -240,3 +313,108 @@ def _build_plain(
         f"  pm-job-agent generate {output_path}",
     ]
     return "\n".join(lines)
+
+
+def _build_tier_lists_plain(
+    new_jobs: list[RankedJobDict],
+    *,
+    top_n: int,
+    high_score_min: float,
+    next_score_min: float,
+) -> list[str]:
+    high = [j for j in new_jobs if float(j.get("score", 0.0)) >= high_score_min]
+    next_tier = [
+        j
+        for j in new_jobs
+        if next_score_min <= float(j.get("score", 0.0)) < high_score_min
+    ]
+
+    def _fmt(j: RankedJobDict) -> str:
+        location = (j.get("location") or "").strip() or "(location not specified)"
+        return (
+            f"- {j.get('title','')} — {j.get('company','')} — {location} — {float(j.get('score',0.0)):.2f}"
+        )
+
+    out: list[str] = []
+    out.append(f"Highly relevant roles (score ≥ {high_score_min:.2f}):")
+    if high:
+        out.extend([_fmt(j) for j in high[:top_n]])
+    else:
+        out.append("- (none)")
+    out.append("")
+    out.append(f"Next tier roles (score {next_score_min:.2f}–{high_score_min:.2f}):")
+    if next_tier:
+        out.extend([_fmt(j) for j in next_tier[:top_n]])
+    else:
+        out.append("- (none)")
+
+    if new_jobs and not high and not next_tier:
+        out += ["", "No new highly relevant roles found in this run."]
+
+    return out
+
+
+_FIRST_SENTENCE_RE = re.compile(r"^(.+?[.!?])(\s|$)", flags=re.DOTALL)
+
+
+def _first_sentence(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    match = _FIRST_SENTENCE_RE.match(raw)
+    return (match.group(1).strip() if match else raw).strip()
+
+
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _render_markdownish_to_html(text: str) -> str:
+    """Render a small safe subset of markdown-ish text into HTML.
+
+    Supports:
+      - paragraphs separated by blank lines
+      - bullet lists using '- ' prefixes
+      - **bold**
+
+    Always escapes HTML first (no raw HTML passthrough).
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "<p>(no digest)</p>"
+
+    escaped = html.escape(raw)
+    escaped = _BOLD_RE.sub(r"<strong>\1</strong>", escaped)
+
+    lines = escaped.splitlines()
+    blocks: list[str] = []
+    buf: list[str] = []
+
+    def flush_buf() -> None:
+        nonlocal buf
+        if not buf:
+            return
+        blocks.append("<p>" + "<br>".join(buf) + "</p>")
+        buf = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            flush_buf()
+            i += 1
+            continue
+
+        if line.startswith("- "):
+            flush_buf()
+            items = []
+            while i < len(lines) and lines[i].strip().startswith("- "):
+                items.append("<li>" + lines[i].strip()[2:] + "</li>")
+                i += 1
+            blocks.append("<ul>" + "".join(items) + "</ul>")
+            continue
+
+        buf.append(line)
+        i += 1
+
+    flush_buf()
+    return "\n".join(blocks)
