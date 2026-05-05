@@ -242,6 +242,8 @@ This repo intentionally does **not** store secrets or personal context in Git. K
 
    **Backward compatibility:** if `target_employers` is missing or empty, the loader falls back to separate `greenhouse_board_tokens`, `lever_board_tokens`, and `ashby_board_names` lists (same behavior as before). If `target_employers` is **non-empty**, those legacy three keys are **ignored** for discovery — drop them from YAML or Actions `SEARCH_PROFILE_YAML` after migrating to avoid confusion.
 
+   **Troubleshooting board 404s:** If logs show `Lever board '…' not found (404)` or `Ashby board '…' not found (404)`, the slug no longer matches that vendor’s public careers URL (many companies move from Lever to Ashby or rename their board). Remove the stale `lever:` or `ashby:` key from that `target_employers` row, or fix the slug by opening the employer’s live jobs page and copying the path segment. Greenhouse raises a hard error instead of 404-to-empty; treat “HTTP 404” the same way — token wrong or board private. Duplicate warnings on every run mean the row still lists a dead board.
+
    There is still no global “all companies” feed — you curate employers yourself. Same role on multiple sources collapses via `(company, title)` dedup once `name` aligns. Ashby exposes ISO `publishedAt` as CSV `source_posted_at`; freshness resolves ISO and LinkedIn relative strings.
 
    **`linkedin_search_queries`** are keyword searches (different model from board slugs) — be specific. With `location_filter: strict` (the default when you set `locations`), jobs whose non-empty `location` does not contain any of your substrings are dropped after discovery; use `location_filter: soft` for LLM-only geography. Optional `linkedin_location`, `linkedin_date_posted` (Apify codes such as `r604800`), and `linkedin_sort_by` tune the LinkedIn actor. `freshness_max_days` (default `5`) hard-filters older roles; `freshness_boost_under_hours` (default `24`) prefers recent roles in ranking (`<=` boundary). The run CSV includes `source_posted_at`, `freshness_age_hours`, and `freshness_basis`. In Sheets, `discovered_date` is pipeline first-seen, not the employer’s post date — compare with `source_posted_at`. Without meaningful board + LinkedIn config, discovery returns few or no jobs.
@@ -413,6 +415,9 @@ Tightened LinkedIn search queries for better signal-to-noise. Added Greenhouse 4
 
 **`feature/lever-integration`** ✓ Shipped Apr 2026
 Added Lever as a third job source (no API key required). `LeverClient` queries the public Lever posting API per company slug, filters by target titles, and gracefully skips 404 boards. `lever_board_tokens` added to `SearchProfile`. Source block wired into `discovery.py` after LinkedIn.
+
+**Ashby + unified `target_employers`** ✓ Shipped Apr 2026
+Added Ashby’s public [posting API](https://developers.ashbyhq.com/docs/public-job-posting-api) as a fourth board source (no API key). Introduced YAML `target_employers`: one row per employer with optional `greenhouse`, `lever`, and `ashby` keys plus `name` for CSV/Sheet `company` and clearer `(company, title)` dedup. Legacy `greenhouse_board_tokens` / `lever_board_tokens` / `ashby_board_names` remain supported when `target_employers` is absent or empty; when it is non-empty, legacy board lists are ignored for discovery. Board clients accept an optional display label; ISO `publishedAt` from Ashby is included in freshness resolution alongside LinkedIn-style relative post times.
 
 ### Next up
 
