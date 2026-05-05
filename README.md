@@ -176,7 +176,10 @@ This repo intentionally does **not** store secrets or personal context in Git. K
    GMAIL_SENDER=you@gmail.com
    GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
    NOTIFY_EMAIL=you@gmail.com
-   NOTIFY_TOP_N=20
+   NOTIFY_TOP_N=3
+   # Optional tuning knobs:
+   # NOTIFY_HIGH_SCORE_MIN=0.80   # highlighted as "highly relevant" in the headline section
+   # NOTIFY_NEXT_SCORE_MIN=0.50   # highlighted as "next tier" in the headline section
    ```
 
    Without these keys, the notify step is silently skipped — the run completes normally and only the CSV is written.
@@ -256,7 +259,7 @@ This repo intentionally does **not** store secrets or personal context in Git. K
 pm-job-agent run
 ```
 
-Runs discovery (Greenhouse + Lever + Ashby + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with review columns (`flagged`) and freshness audit columns (`source_posted_at`, `freshness_age_hours`, `freshness_basis`). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` with the top `NOTIFY_TOP_N` scored roles.
+Runs discovery (Greenhouse + Lever + Ashby + LinkedIn) → scoring → digest → CSV → email. Produces `outputs/run_YYYYMMDD_HHMMSS.csv` with review columns (`flagged`) and freshness audit columns (`source_posted_at`, `freshness_age_hours`, `freshness_basis`). If `GMAIL_APP_PASSWORD` is set, sends an HTML email digest to `NOTIFY_EMAIL` that (a) shows a one-sentence “New highlights” summary, (b) lists up to `NOTIFY_TOP_N` roles in the highly relevant tier and the next tier (default 3 each), and (c) includes a link to the Google Sheet tracker if configured.
 
 ```bash
 pm-job-agent run --json   # print full graph state as JSON (includes agent_context — treat as sensitive)
@@ -419,12 +422,13 @@ Added Lever as a third job source (no API key required). `LeverClient` queries t
 **Ashby + unified `target_employers`** ✓ Shipped Apr 2026
 Added Ashby’s public [posting API](https://developers.ashbyhq.com/docs/public-job-posting-api) as a fourth board source (no API key). Introduced YAML `target_employers`: one row per employer with optional `greenhouse`, `lever`, and `ashby` keys plus `name` for CSV/Sheet `company` and clearer `(company, title)` dedup. Legacy `greenhouse_board_tokens` / `lever_board_tokens` / `ashby_board_names` remain supported when `target_employers` is absent or empty; when it is non-empty, legacy board lists are ignored for discovery. Board clients accept an optional display label; ISO `publishedAt` from Ashby is included in freshness resolution alongside LinkedIn-style relative post times.
 
+<<<<<<< HEAD
+=======
+**Email digest relevance tiers** ✓ Shipped May 2026
+Email headline prioritizes **new + highly relevant** roles (then next tier), renders digest formatting reliably, includes a link to the Google Sheet tracker (when configured), and lists up to `NOTIFY_TOP_N` roles per tier (default 3).
+
+>>>>>>> feature/email-digest-relevance
 ### Next up
-
-**Email relevance improvements**
-
-- Prefer highlighting **new strong-fit roles** (e.g. “new to Sheet” AND score above a threshold) over simply “new roles discovered”.
-- Make this configurable (threshold, top-N, and whether to include a “low-score but new” section).
 
 **Application tracking consolidation (future)**
 

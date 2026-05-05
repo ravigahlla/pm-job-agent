@@ -226,53 +226,257 @@ class TestNotifyNode:
 
 class TestBuildHtml:
     def test_contains_job_titles(self) -> None:
-        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
-        for job in SAMPLE_JOBS:
-            assert job["title"] in html
+        # Only tier-eligible roles are listed; ensure at least one listed role appears.
+        jobs = [
+            _job(title="High", job_id="high:1", score=0.9),
+            _job(title="Next", job_id="next:1", score=0.6),
+            _job(title="Low", job_id="low:1", score=0.2),
+        ]
+        html_out = _build_html(
+            jobs,
+            len(jobs),
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "High" in html_out
+        assert "Next" in html_out
+        assert "Low" not in html_out
 
     def test_respects_top_n_limit(self) -> None:
-        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}") for i in range(10)]
-        html = _build_html(jobs, len(jobs), SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
+        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}", score=0.9) for i in range(10)]
+        html = _build_html(
+            jobs,
+            len(jobs),
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert "Role 0" in html
         assert "Role 2" in html
         assert "Role 3" not in html
 
     def test_contains_digest_text(self) -> None:
-        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(
+            SAMPLE_JOBS,
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert SAMPLE_DIGEST in html
 
     def test_contains_csv_path(self) -> None:
-        html = _build_html(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(
+            SAMPLE_JOBS,
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert SAMPLE_PATH in html
 
     def test_job_urls_are_hyperlinks(self) -> None:
         html = _build_html(
-            [_job(url="https://example.com/job1")], 1, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10
+            [_job(url="https://example.com/job1", score=0.9)],
+            1,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
         )
         assert 'href="https://example.com/job1"' in html
 
     def test_shows_nothing_new_message_when_empty(self) -> None:
-        html = _build_html([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        html = _build_html(
+            [],
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert "No new roles found today" in html
+
+    def test_renders_markdownish_digest_as_html(self) -> None:
+        digest = "- One\n- Two\n\nThis is **bold**."
+        html_out = _build_html(
+            [_job(score=0.9)],
+            1,
+            digest,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        # Digest's first sentence should appear; formatting is rendered safely.
+        assert "One" in html_out
+        assert "<strong>bold</strong>" in html_out
+
+    def test_includes_sheet_link_when_configured(self) -> None:
+        sheet_url = "https://docs.google.com/spreadsheets/d/abc123"
+        html_out = _build_html(
+            [_job(score=0.9)],
+            1,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url=sheet_url,
+        )
+        assert 'Click here for full list of roles' in html_out
+        assert sheet_url in html_out
+
+    def test_says_no_relevant_roles_when_all_new_below_thresholds(self) -> None:
+        jobs = [_job(title="Low", job_id="low:1", score=0.2)]
+        html_out = _build_html(
+            jobs,
+            1,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "No new highly relevant roles found in this run" in html_out
+
+    def test_does_not_include_table(self) -> None:
+        html_out = _build_html(
+            SAMPLE_JOBS,
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "<table" not in html_out
+
+    def test_summary_is_first_sentence_of_digest(self) -> None:
+        digest = "First sentence. Second sentence."
+        html_out = _build_html(
+            [_job(score=0.9)],
+            1,
+            digest,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "First sentence." in html_out
+        assert "Second sentence." not in html_out
 
 
 class TestBuildPlain:
     def test_contains_job_titles(self) -> None:
-        plain = _build_plain(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
-        for job in SAMPLE_JOBS:
-            assert job["title"] in plain
+        jobs = [
+            _job(title="High", job_id="high:1", score=0.9),
+            _job(title="Next", job_id="next:1", score=0.6),
+            _job(title="Low", job_id="low:1", score=0.2),
+        ]
+        plain = _build_plain(
+            jobs,
+            len(jobs),
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "High" in plain
+        assert "Next" in plain
+        assert "Low" not in plain
 
     def test_respects_top_n_limit(self) -> None:
-        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}") for i in range(10)]
-        plain = _build_plain(jobs, len(jobs), SAMPLE_DIGEST, SAMPLE_PATH, top_n=3)
+        jobs = [_job(title=f"Role {i}", job_id=f"test:{i}", score=0.9) for i in range(10)]
+        plain = _build_plain(
+            jobs,
+            len(jobs),
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert "Role 0" in plain
         assert "Role 3" not in plain
 
     def test_contains_generate_command(self) -> None:
-        plain = _build_plain(SAMPLE_JOBS, ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        plain = _build_plain(
+            SAMPLE_JOBS,
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert "pm-job-agent generate" in plain
         assert SAMPLE_PATH in plain
 
     def test_shows_nothing_new_message_when_empty(self) -> None:
-        plain = _build_plain([], ALL_JOB_COUNT, SAMPLE_DIGEST, SAMPLE_PATH, top_n=10)
+        plain = _build_plain(
+            [],
+            ALL_JOB_COUNT,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=10,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
         assert "Nothing new today" in plain
+
+    def test_includes_sheet_link_when_configured(self) -> None:
+        sheet_url = "https://docs.google.com/spreadsheets/d/abc123"
+        plain = _build_plain(
+            [_job(score=0.9)],
+            1,
+            SAMPLE_DIGEST,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url=sheet_url,
+        )
+        assert "Click here for full list of roles" in plain
+        assert sheet_url in plain
+
+    def test_summary_is_first_sentence_of_digest(self) -> None:
+        digest = "First sentence. Second sentence."
+        plain = _build_plain(
+            [_job(score=0.9)],
+            1,
+            digest,
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "First sentence." in plain
+        assert "Second sentence." not in plain
