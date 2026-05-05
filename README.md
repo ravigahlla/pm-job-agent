@@ -1,34 +1,65 @@
 # pm-job-agent
 
-Multi-agent job hunting system: LangGraph orchestration, job discovery (Greenhouse + Lever + Ashby + LinkedIn via Apify), scoring against your background, tailored documents on demand, and CSV export. See `.cursorrules` for goals and phases.
+<blockquote>
+<p><strong>What this is:</strong> a local-first, LangGraph-orchestrated pipeline that discovers PM roles from public job boards, scores them against <em>your</em> background, exports a reviewable CSV (and optionally a Google Sheet + email digest), and can generate tailored application text on demand.</p>
+<p><strong>What it is not (yet):</strong> Slack ingestion, “all jobs on the internet” discovery, or a hosted dashboard — those are roadmap items.</p>
+</blockquote>
 
-## Contents
+<details>
+<summary><strong>Table of contents</strong></summary>
 
+- [Authorship](#authorship)
+- [Roadmap at a glance](#roadmap-at-a-glance)
 - [Architecture](#architecture)
+  - [Repository layout](#repository-layout)
+  - [Why this stack](#why-this-stack)
 - [Setup](#setup)
   - [Virtual environment](#virtual-environment-recommended)
   - [Bootstrap script](#bootstrap-script-macos--linux--wsl)
-  - [After git clone](#after-git-clone-or-git-pull-on-a-new-machine)
+  - [After `git clone`](#after-git-clone-or-git-pull-on-a-new-machine)
   - [Configuration](#configuration)
 - [Usage](#usage)
   - [Run the pipeline](#run-the-pipeline)
   - [Generate documents for flagged roles](#generate-documents-for-flagged-roles)
-- [Layout](#layout)
+  - [Evaluate and refine scoring quality](#evaluate-and-refine-scoring-quality)
+  - [Local development (no API keys required)](#local-development-no-api-keys-required)
+  - [GitHub contributions (heatmap)](#github-contributions-heatmap)
 - [Automated daily runs](#automated-daily-runs)
 - [Tests](#tests)
 - [Docker](#docker)
-- [Roadmap](#roadmap)
+- [Roadmap details](#roadmap-details)
+  - [Shipped](#shipped)
+  - [Next up](#next-up)
 
----
+</details>
 
-**What runs today:** A two-step workflow:
+## Authorship
 
-1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards, Lever boards, Ashby-hosted boards, and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
-2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
+<p>Author: Ravinder Singh. Personal job-search automation project; career context and secrets live outside Git (<code>private/</code>, <code>.env</code>). Project goals and build phases: see <code>.cursorrules</code>.</p>
 
-LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
+## Roadmap at a glance
 
-**Not in code yet:** Slack channel ingestion, Slack notifications, additional job sources (YCombinator, TrueUp, Indeed), predictive company intelligence (funding signals → proactive outreach).
+<p><strong>Where we are:</strong> Phase 1 (core loop) and Phase 2 (signal quality) are shipped. The daily email digest and Sheets sync are production-usable; document generation remains on-demand.</p>
+
+<p><strong>Where we’re going:</strong> Phase 3 adds explainability + memory + richer intelligence; Phase 4 focuses on ops polish (UI, ingestion breadth, Python upgrade).</p>
+
+<p>Deep-dive history: <a href="#shipped">Shipped</a> · <a href="#next-up">Next up</a>.</p>
+
+```mermaid
+flowchart LR
+  p01["Phase1_CoreLoop\nShipped_Mar27-31_2026"]
+  p02["Phase2_SignalQuality\nShipped_Apr_2026"]
+  mScoringV2["milestone_scoring_v2\nShipped_Mar31_2026"]
+  mSourcingV2["milestone_sourcing_v2\nShipped_Apr_2026"]
+  mEmailDigest["milestone_email_digest\nShipped_May_2026"]
+  p03["Phase3_Intelligence\nNext"]
+  p04["Phase4_ScaleOps\nFuture"]
+
+  p01 --> p02 --> p03 --> p04
+  p01 -.-> mScoringV2
+  p02 -.-> mSourcingV2
+  mSourcingV2 -.-> mEmailDigest
+```
 
 ## Architecture
 
@@ -75,7 +106,46 @@ flowchart TB
   genDocs --> writeBack
 ```
 
-Discovery applies configurable location rules and a freshness cutoff before scoring; scoring then ranks by semantic fit with a configurable recency preference for listings inside the freshness window. Board targets (`target_employers` plus LinkedIn queries) live in `search_profile.yaml`; also configurable: `freshness_max_days`, `freshness_boost_under_hours`, location list / `location_filter`.
+<p>Discovery applies configurable location rules and a freshness cutoff before scoring; scoring ranks by semantic fit with a configurable recency preference for listings inside the freshness window. Board targets (<code>target_employers</code> plus LinkedIn queries) live in <code>search_profile.yaml</code>; also configurable: <code>freshness_max_days</code>, <code>freshness_boost_under_hours</code>, location list / <code>location_filter</code>.</p>
+
+### Repository layout
+
+| Path | Role |
+|------|------|
+| `src/pm_job_agent/` | Application package (`config`, `models`, `integrations`, `agents`, `graphs`, `services`, `cli`) |
+| `tests/unit/` | Fast tests, mocked HTTP and LLM calls |
+| `scripts/` | One-off local scripts |
+| `private/` | **Local only** — career context, search profile |
+| `outputs/` | **Gitignored** — timestamped CSV run files |
+
+Inside `src/pm_job_agent/`:
+
+| Path | Role |
+|------|------|
+| `config/` | `Settings` from `.env`; `SearchProfile` loaded from `private/search_profile.yaml` |
+| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `deduplicate`, `digest`, `persist`, `sync_sheets`, `notify`, `generation` |
+| `graphs/` | LangGraph compile (`build_core_loop_graph`) |
+| `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
+| `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
+| `integrations/` | `greenhouse.py`, `lever.py`, `ashby.py`, `linkedin.py` (Apify), `sheets.py` |
+| `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
+
+### Why this stack
+
+- **LangGraph** — explicit graph boundaries so each step (discover, score, persist, notify) stays testable and swappable.
+- **Pydantic Settings** — typed configuration from environment variables; keeps secrets out of code.
+- **httpx** — consistent HTTP for public board APIs and scraping integrations.
+- **Provider abstraction** — swap LLM vendors via `.env` without touching agent logic.
+
+---
+
+**What runs today:** A two-step workflow:
+
+1. **`pm-job-agent run`** — discovers jobs from Greenhouse boards, Lever boards, Ashby-hosted boards, and LinkedIn (via Apify), scores each role with LLM semantic scoring (keyword pre-filter + scoring model call against your career context), runs an LLM digest, writes a timestamped CSV to `outputs/`, syncs new jobs to a Google Sheet tracker (if configured), and sends an HTML email digest (if Gmail credentials are configured). Document generation does **not** happen automatically.
+
+2. **`pm-job-agent generate <csv>`** — reads a previous run CSV, generates a tailored resume note and cover letter opening for every row you flagged `yes` in the `flagged` column, and writes the results back into the same file.
+
+LLM providers (Anthropic, OpenAI, Gemini, Ollama) are fully wired and swap via `DEFAULT_LLM_PROVIDER` in `.env` — no code changes needed.
 
 ## Setup
 
@@ -166,7 +236,7 @@ This repo intentionally does **not** store secrets or personal context in Git. K
 
    Without this key, LinkedIn discovery is silently skipped; Greenhouse, Lever, and Ashby posting APIs still run normally (no API key required).
 
-4. **Email digest (optional)** — after each run, the pipeline can send a formatted HTML email with the top-N scored jobs and the LLM digest summary. Requires a Gmail App Password (not your account password):
+4. **Email digest (optional)** — after each run, the pipeline can send a formatted HTML email (tier highlights + tracker link). Requires a Gmail App Password (not your account password):
 
    1. Enable 2-Step Verification on your Google account.
    2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and create an App Password for "Mail".
@@ -178,8 +248,8 @@ This repo intentionally does **not** store secrets or personal context in Git. K
    NOTIFY_EMAIL=you@gmail.com
    NOTIFY_TOP_N=3
    # Optional tuning knobs:
-   # NOTIFY_HIGH_SCORE_MIN=0.80   # highlighted as "highly relevant" in the headline section
-   # NOTIFY_NEXT_SCORE_MIN=0.50   # highlighted as "next tier" in the headline section
+   # NOTIFY_HIGH_SCORE_MIN=0.80   # "highly relevant" tier
+   # NOTIFY_NEXT_SCORE_MIN=0.50   # "next tier"
    ```
 
    Without these keys, the notify step is silently skipped — the run completes normally and only the CSV is written.
@@ -319,27 +389,9 @@ Requires [Ollama](https://ollama.com) installed and running (`ollama serve`). `l
 
 `--provider` accepts any configured provider: `stub | anthropic | openai | gemini | ollama`. `stub` is useful for smoke-testing the pipeline shape without any LLM calls.
 
-## Layout
+### GitHub contributions (heatmap)
 
-| Path | Role |
-|------|------|
-| `src/pm_job_agent/` | Application package (`config`, `models`, `integrations`, `agents`, `graphs`, `services`, `cli`) |
-| `tests/unit/` | Fast tests, mocked HTTP and LLM calls |
-| `scripts/` | One-off local scripts |
-| `private/` | **Local only** — career context, search profile |
-| `outputs/` | **Gitignored** — timestamped CSV run files |
-
-Inside `src/pm_job_agent/`:
-
-| Path | Role |
-|------|------|
-| `config/` | `Settings` from `.env`; `SearchProfile` loaded from `private/search_profile.yaml` |
-| `agents/` | Pipeline nodes: `context`, `discovery`, `scoring`, `deduplicate`, `digest`, `persist`, `sync_sheets`, `notify`, `generation` |
-| `graphs/` | LangGraph compile (`build_core_loop_graph`) |
-| `models/` | `LLMClient` protocol, `StubLLM`, `get_llm_client()` factory; `providers/` holds Anthropic, OpenAI, Gemini, Ollama |
-| `services/` | Shared types (`JobDict`, `RankedJobDict`, `DocumentDict`) and `redact_pii()` |
-| `integrations/` | `greenhouse.py`: Greenhouse board client. `lever.py`: Lever board client. `ashby.py`: Ashby posting API client. `linkedin.py`: LinkedIn via Apify Actor. `sheets.py`: Google Sheets tracker |
-| `cli/` | `main.py` (subcommands: `run`, `generate`); `generate_cmd.py` (on-demand generation logic) |
+<p>Commits only affect your contribution graph when GitHub attributes them to a <strong>verified email</strong> on your account. Work on a feature branch still counts once those commits land on the repository’s default branch (typically via merge). Verify the author email on your last commit with <code>git log -1 --format='%ae'</code>.</p>
 
 ## Automated daily runs
 
@@ -367,7 +419,7 @@ The pipeline runs automatically on weekday mornings via GitHub Actions (`.github
 
 `private/seen_jobs.json` is persisted between runs via `actions/cache` keyed on the day's date. This is what prevents the same jobs from appearing in the digest every day.
 
-To trigger a manual run: Actions tab → `Daily PM Job Agent Run` → `Run workflow`.
+To trigger a manual run: Actions tab → `Daily job digest` → `Run workflow`.
 
 ## Tests
 
@@ -383,51 +435,36 @@ docker build -t pm-job-agent .
 
 The build context excludes `private/`, `.env`, and virtualenvs via `.dockerignore`.
 
-## Roadmap
-
-```mermaid
-flowchart LR
-  p1["Phase 1\nCore Loop\n✓ Shipped Mar 27–31 2026"]
-  p2["Phase 2\nSignal Quality\n✓ Shipped Apr 2026"]
-  p3["Phase 3\nIntelligence Layer\n← Next"]
-  p4["Phase 4\nScale and Ops"]
-
-  p1 --> p2 --> p3 --> p4
-
-  p1 --- s1["Greenhouse + Lever + Ashby + LinkedIn discovery\nLLM semantic scoring + personalised criteria\nCheap scoring model config\nLLM digest\nCSV + email digest\nDeduplication\nGoogle Sheets tracker\nGitHub Actions cron\nOn-demand document generation"]
-
-  p2 --- s2["LLM semantic scoring (scoring-v2)\nPersonalised rubric injection\nEval + human scoring workflow\nGreenhouse 404 handling\nLinkedIn query tightening\n(company, title) dedup\nMin description length filter\nLever integration\nFreshness cutoff + CSV audit columns\nConfigurable location filtering"]
-
-  p3 --- s3["Explainability: why a role scored highly\nApplication memory + outcome tracking\nPredictive company intelligence\nFunding signals → proactive outreach"]
-
-  p4 --- s4["Slack channel ingestion\nStreamlit local web UI\nPython 3.11+ upgrade\nSheets UI improvements"]
-```
+## Roadmap details
 
 ### Shipped
 
 **Phase 1 — Core Loop** _(Mar 27–30 2026)_
+
 Scaffold → Greenhouse discovery → keyword scoring → real LLM providers → on-demand document generation → LinkedIn/Apify scraping → cross-run deduplication → email digest → GitHub Actions cron → Google Sheets tracker.
 
 **`feature/scoring-v2`** ✓ Shipped Mar 31 2026
+
 Replaced keyword scoring with LLM semantic scoring (keyword pre-filter + per-job LLM call against `agent-context.md`). Added `SCORING_LLM_PROVIDER` / `SCORING_MODEL` for model tiering, `SCORING_CRITERIA_PATH` to inject a personalised rubric into the system prompt, `score_rationale` field in CSV and Sheet, `--provider` CLI flag for local Ollama testing, `scripts/eval_scoring.py` for oracle-based quality validation, and `scripts/rescore_sheet.py` to back-fill v2 scores on existing Sheet rows.
 
 **Quality validation (Mar 31 2026):** Ran `eval_scoring.py` against today's 191-job run (20-job oracle sample): MAE 0.189, Spearman 0.621. Scoring model is directionally correct and identifies domain/seniority gaps accurately; slight conservative bias (~0.19 below oracle) expected given cheaper scoring model. Pre-filter correctly drops non-AI-adjacent roles. Ran `rescore_sheet.py --write` against all 244 historical Sheet rows: average score rose from 0.139 (keyword noise) to 0.307 (semantic), 87 large changes (>0.30). Notable rescores: `Principal PM, AI @ Webflow` 0.40 → 0.82, `Product Manager, Subscription & Payments @ Webflow` 0.40 → 0.72.
 
 **`feature/sourcing-v2`** ✓ Shipped Apr 2026
+
 Tightened LinkedIn search queries for better signal-to-noise. Added Greenhouse 404 handling (stale board tokens now skip silently). Added `scripts/sample_for_review.py` for stratified human scoring workflow. Added minimum description length pre-filter to drop generic listings before LLM scoring. Added (company, title) cross-source deduplication to collapse duplicate postings from multiple LinkedIn queries or boards.
 
 **`feature/lever-integration`** ✓ Shipped Apr 2026
+
 Added Lever as a third job source (no API key required). `LeverClient` queries the public Lever posting API per company slug, filters by target titles, and gracefully skips 404 boards. `lever_board_tokens` added to `SearchProfile`. Source block wired into `discovery.py` after LinkedIn.
 
 **Ashby + unified `target_employers`** ✓ Shipped Apr 2026
+
 Added Ashby’s public [posting API](https://developers.ashbyhq.com/docs/public-job-posting-api) as a fourth board source (no API key). Introduced YAML `target_employers`: one row per employer with optional `greenhouse`, `lever`, and `ashby` keys plus `name` for CSV/Sheet `company` and clearer `(company, title)` dedup. Legacy `greenhouse_board_tokens` / `lever_board_tokens` / `ashby_board_names` remain supported when `target_employers` is absent or empty; when it is non-empty, legacy board lists are ignored for discovery. Board clients accept an optional display label; ISO `publishedAt` from Ashby is included in freshness resolution alongside LinkedIn-style relative post times.
 
-<<<<<<< HEAD
-=======
 **Email digest relevance tiers** ✓ Shipped May 2026
-Email headline prioritizes **new + highly relevant** roles (then next tier), renders digest formatting reliably, includes a link to the Google Sheet tracker (when configured), and lists up to `NOTIFY_TOP_N` roles per tier (default 3).
 
->>>>>>> feature/email-digest-relevance
+Email shows a one-sentence “New highlights” line, tiered role lists (highly relevant, then next tier), optional link copy to open the full Google Sheet tracker, and uses `NOTIFY_TOP_N` as the per-tier cap (default 3).
+
 ### Next up
 
 **Application tracking consolidation (future)**
@@ -436,17 +473,18 @@ Email headline prioritizes **new + highly relevant** roles (then next tier), ren
 - Likely needs nuance beyond a single `status` cell (timestamps, source of truth, dedup between systems, and whether the pipeline should ever write to these fields).
 
 **`feature/sheets-ui`**
+
 Format `title` as `=HYPERLINK(url, title)` for one-click access. Score as percentage. Document a filter view setup for daily review. Low value until data quality upstream is fixed.
 
 Key decisions: `USER_ENTERED` vs `RAW` for append (risk: job titles containing `=` misinterpreted as formulas).
 
-### Phase 3 — Intelligence layer
+#### Phase 3 — Intelligence layer
 
 - **Explainability** — store LLM rationale per job in CSV and Sheet; surface top reasons in digest
 - **Application memory** — track outcomes (applied, interviewed, rejected); recalibrate scoring over time; likely needs SQLite in `private/`
 - **Predictive company intelligence** — monitor funding signals (Crunchbase, Harmonic) for companies likely to hire PMs before they post; separate "watchlist" section in digest email
 
-### Phase 4 — Scale and ops
+#### Phase 4 — Scale and ops
 
 - **Slack ingestion** — ingest job posts from a channel (bot needs `channels:history` scope)
 - **Streamlit UI** — local web app for reviewing, filtering, updating status; most demonstrable as portfolio artifact
