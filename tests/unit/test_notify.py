@@ -384,8 +384,50 @@ class TestBuildHtml:
             next_score_min=0.50,
             sheets_url="",
         )
+        # Stats line should appear before the highlight sentence.
+        assert html_out.index("New:") < html_out.index("First sentence.")
         assert "First sentence." in html_out
         assert "Second sentence." not in html_out
+
+    def test_stats_line_includes_counts_names_and_remainder(self) -> None:
+        jobs = [
+            _job(title="High1", company="Co1", job_id="h1", score=0.90),
+            _job(title="High2", company="Co2", job_id="h2", score=0.85),
+            _job(title="Next1", company="Co3", job_id="n1", score=0.70),
+        ]
+        html_out = _build_html(
+            jobs,
+            len(jobs),
+            "Highlight sentence.",
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "New: 3" in html_out
+        assert "High-tier: 2" in html_out
+        assert "High1 @ Co1" in html_out
+        assert "High2 @ Co2" in html_out
+        assert "Next-tier: 1" in html_out
+        assert "Remainder: 0" in html_out
+
+    def test_role_lines_include_freshness(self) -> None:
+        job = _job(title="High1", company="Co1", job_id="h1", score=0.90)
+        job["freshness_age_hours"] = 6.0
+        job["source_posted_at"] = "6 hours ago"
+        html_out = _build_html(
+            [job],
+            1,
+            "Highlight sentence.",
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "6 hours ago" in html_out
+        assert "~6h" in html_out
 
 
 class TestBuildPlain:
@@ -478,5 +520,46 @@ class TestBuildPlain:
             next_score_min=0.50,
             sheets_url="",
         )
+        assert plain.index("New:") < plain.index("First sentence.")
         assert "First sentence." in plain
         assert "Second sentence." not in plain
+
+    def test_stats_line_includes_counts_names_and_remainder(self) -> None:
+        jobs = [
+            _job(title="High1", company="Co1", job_id="h1", score=0.90),
+            _job(title="High2", company="Co2", job_id="h2", score=0.85),
+            _job(title="Next1", company="Co3", job_id="n1", score=0.70),
+        ]
+        plain = _build_plain(
+            jobs,
+            len(jobs),
+            "Highlight sentence.",
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "New: 3" in plain
+        assert "High-tier: 2" in plain
+        assert "High1 @ Co1" in plain
+        assert "High2 @ Co2" in plain
+        assert "Next-tier: 1" in plain
+        assert "Remainder: 0" in plain
+
+    def test_role_lines_include_freshness(self) -> None:
+        job = _job(title="High1", company="Co1", job_id="h1", score=0.90)
+        job["freshness_age_hours"] = 6.0
+        job["source_posted_at"] = "6 hours ago"
+        plain = _build_plain(
+            [job],
+            1,
+            "Highlight sentence.",
+            SAMPLE_PATH,
+            top_n=3,
+            high_score_min=0.80,
+            next_score_min=0.50,
+            sheets_url="",
+        )
+        assert "6 hours ago" in plain
+        assert "~6h" in plain
