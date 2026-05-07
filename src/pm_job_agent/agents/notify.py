@@ -228,13 +228,40 @@ def _build_highlights_section_html(
         if next_score_min <= float(j.get("score", 0.0)) < high_score_min
     ]
 
+    stats_line = _build_stats_line(
+        new_jobs,
+        high=high,
+        next_tier=next_tier,
+        high_score_min=high_score_min,
+        next_score_min=next_score_min,
+    )
+
     section = [
         '<h3 style="margin:16px 0 6px 0;">New highlights</h3>',
+        f'<p style="color:#333;"><strong>{html.escape(stats_line)}</strong></p>',
         f"<p>{_render_markdownish_to_html(summary_sentence)}</p>",
     ]
 
     if not new_jobs:
         return "\n".join(section)
+
+    def _format_freshness(job: RankedJobDict) -> str:
+        age = job.get("freshness_age_hours", None)
+        source_posted_at = (job.get("source_posted_at") or "").strip()
+        age_str = ""
+        if isinstance(age, (int, float)) and age >= 0:
+            if age < 48:
+                age_str = f"~{int(round(age))}h"
+            else:
+                age_str = f"~{int(round(age / 24.0))}d"
+
+        if age_str and source_posted_at and isinstance(age, (int, float)) and age < 48:
+            return f"{source_posted_at} ({age_str})"
+        if age_str:
+            return age_str
+        if source_posted_at:
+            return source_posted_at
+        return "freshness unknown"
 
     def _role_list(items: list[RankedJobDict]) -> str:
         parts: list[str] = []
@@ -244,10 +271,11 @@ def _build_highlights_section_html(
             company = html.escape(j.get("company", "") or "")
             location = html.escape(j.get("location", "") or "") or "(location not specified)"
             score = float(j.get("score", 0.0))
+            freshness = html.escape(_format_freshness(j))
             role = f'<a href="{url}"><strong>{title}</strong></a>' if url else f"<strong>{title}</strong>"
             parts.append(
                 "<li>"
-                f"{role} — {company} — {html.escape(location)} — {score:.2f}"
+                f"{role} — {company} — {html.escape(location)} — {score:.2f} — {freshness}"
                 "</li>"
             )
         return ("<ul>" + "".join(parts) + "</ul>") if parts else "<p style=\"color:#666;\">(none)</p>"
@@ -282,10 +310,24 @@ def _build_plain(
     sheets_url: str,
 ) -> str:
     summary_sentence = _first_sentence(digest)
+    high = [j for j in new_jobs if float(j.get("score", 0.0)) >= high_score_min]
+    next_tier = [
+        j
+        for j in new_jobs
+        if next_score_min <= float(j.get("score", 0.0)) < high_score_min
+    ]
+    stats_line = _build_stats_line(
+        new_jobs,
+        high=high,
+        next_tier=next_tier,
+        high_score_min=high_score_min,
+        next_score_min=next_score_min,
+    )
     lines = [
         f"pm-job-agent — {date.today().isoformat()}",
         "",
         "New highlights:",
+        stats_line,
         summary_sentence,
         "",
     ]
@@ -329,10 +371,29 @@ def _build_tier_lists_plain(
         if next_score_min <= float(j.get("score", 0.0)) < high_score_min
     ]
 
+    def _format_freshness(job: RankedJobDict) -> str:
+        age = job.get("freshness_age_hours", None)
+        source_posted_at = (job.get("source_posted_at") or "").strip()
+        age_str = ""
+        if isinstance(age, (int, float)) and age >= 0:
+            if age < 48:
+                age_str = f"~{int(round(age))}h"
+            else:
+                age_str = f"~{int(round(age / 24.0))}d"
+
+        if age_str and source_posted_at and isinstance(age, (int, float)) and age < 48:
+            return f"{source_posted_at} ({age_str})"
+        if age_str:
+            return age_str
+        if source_posted_at:
+            return source_posted_at
+        return "freshness unknown"
+
     def _fmt(j: RankedJobDict) -> str:
         location = (j.get("location") or "").strip() or "(location not specified)"
         return (
-            f"- {j.get('title','')} — {j.get('company','')} — {location} — {float(j.get('score',0.0)):.2f}"
+            f"- {j.get('title','')} — {j.get('company','')} — {location} — "
+            f"{float(j.get('score',0.0)):.2f} — {_format_freshness(j)}"
         )
 
     out: list[str] = []
@@ -352,6 +413,43 @@ def _build_tier_lists_plain(
         out += ["", "No new highly relevant roles found in this run."]
 
     return out
+
+
+def _build_stats_line(
+    new_jobs: list[RankedJobDict],
+    *,
+    high: list[RankedJobDict],
+    next_tier: list[RankedJobDict],
+    high_score_min: float,
+    next_score_min: float,
+    max_names: int = 3,
+) -> str:
+    new_count = len(new_jobs)
+    high_count = len(high)
+    next_count = len(next_tier)
+    remainder = max(0, new_count - high_count - next_count)
+
+    if new_count == 0:
+        return "New: 0."
+
+    names = []
+    for j in high[:max_names]:
+        title = (j.get("title") or "").strip()
+        company = (j.get("company") or "").strip()
+        if title and company:
+            names.append(f"{title} @ {company}")
+        elif title:
+            names.append(title)
+        if len(names) >= max_names:
+            break
+
+    name_block = f" ({'; '.join(names)})" if names else ""
+    return (
+        f"New: {new_count}. "
+        f"High-tier: {high_count}{name_block} (≥ {high_score_min:.2f}). "
+        f"Next-tier: {next_count} ({next_score_min:.2f}–{high_score_min:.2f}). "
+        f"Remainder: {remainder}."
+    )
 
 
 _FIRST_SENTENCE_RE = re.compile(r"^(.+?[.!?])(\s|$)", flags=re.DOTALL)
